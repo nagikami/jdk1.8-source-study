@@ -75,6 +75,7 @@ public class Arrays {
      * algorithm will not further partition the sorting task. Using
      * smaller sizes typically results in memory contention across
      * tasks that makes parallel speedups unlikely.
+     * 8192
      */
     private static final int MIN_ARRAY_SORT_GRAN = 1 << 13;
 

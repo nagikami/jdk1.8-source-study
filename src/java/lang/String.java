@@ -885,7 +885,7 @@ public final class String
         int j = dstBegin;
         int n = srcEnd;
         int i = srcBegin;
-        char[] val = value;   /* avoid getfield opcode */
+        char[] val = value;   /* avoid getfield opcode todo ? */
 
         while (i < n) {
             dst[j++] = (byte)val[i++];
@@ -903,7 +903,7 @@ public final class String
      *
      * @param  charsetName
      *         The name of a supported {@linkplain java.nio.charset.Charset
-     *         charset}
+     *         charset}. NonNls: non need localize string
      *
      * @return  The resultant byte array
      *
@@ -2029,7 +2029,9 @@ public final class String
         }
         int len = value.length;
         int otherLen = str.length();
+        // 把当前String的value复制到buf
         char buf[] = Arrays.copyOf(value, len + otherLen);
+        // 把str的value复制到buf尾部
         str.getChars(buf, len);
         return new String(buf, true);
     }

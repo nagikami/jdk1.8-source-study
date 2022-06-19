@@ -410,6 +410,7 @@ public class LinkedList<E>
         if (numNew == 0)
             return false;
 
+        // pred 新节点的前节点值，succ新节点的后节点值
         Node<E> pred, succ;
         if (index == size) {
             succ = null;
@@ -430,8 +431,10 @@ public class LinkedList<E>
         }
 
         if (succ == null) {
+            // 若是尾部追加，则last为最后一个新节点
             last = pred;
         } else {
+            // 若是中间插入最后一个新节点的next为原插入处节点
             pred.next = succ;
             succ.prev = pred;
         }

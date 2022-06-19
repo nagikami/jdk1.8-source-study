@@ -440,7 +440,7 @@ public class ArrayList<E> extends AbstractList<E>
     /**
      * Replaces the element at the specified position in this list with
      * the specified element.
-     *
+     * 返回旧值
      * @param index index of the element to replace
      * @param element element to be stored at the specified position
      * @return the element previously at the specified position
@@ -462,6 +462,7 @@ public class ArrayList<E> extends AbstractList<E>
      */
     public boolean add(E e) {
         ensureCapacityInternal(size + 1);  // Increments modCount!!
+        // 自增为非原子性操作，并发时有更新丢失风险
         elementData[size++] = e;
         return true;
     }
@@ -574,7 +575,7 @@ public class ArrayList<E> extends AbstractList<E>
      * is in progress.  (This implies that the behavior of this call is
      * undefined if the specified collection is this list, and this
      * list is nonempty.)
-     *
+     * 返回集合数组是否为空
      * @param c collection containing elements to be added to this list
      * @return <tt>true</tt> if this list changed as a result of the call
      * @throws NullPointerException if the specified collection is null
@@ -693,6 +694,7 @@ public class ArrayList<E> extends AbstractList<E>
      */
     public boolean removeAll(Collection<?> c) {
         Objects.requireNonNull(c);
+        // complement为false：删除
         return batchRemove(c, false);
     }
 
@@ -714,9 +716,16 @@ public class ArrayList<E> extends AbstractList<E>
      */
     public boolean retainAll(Collection<?> c) {
         Objects.requireNonNull(c);
+        // complement为true：保留
         return batchRemove(c, true);
     }
 
+    /**
+     *
+     * @param c
+     * @param complement 判断是否保留
+     * @return
+     */
     private boolean batchRemove(Collection<?> c, boolean complement) {
         final Object[] elementData = this.elementData;
         int r = 0, w = 0;
@@ -768,6 +777,7 @@ public class ArrayList<E> extends AbstractList<E>
             s.writeObject(elementData[i]);
         }
 
+        // 并发检测，若方法执行期间出现结构化修改操作，抛出异常（set方法不修改modCount所以不影响）
         if (modCount != expectedModCount) {
             throw new ConcurrentModificationException();
         }
@@ -816,6 +826,7 @@ public class ArrayList<E> extends AbstractList<E>
     public ListIterator<E> listIterator(int index) {
         if (index < 0 || index > size)
             throw new IndexOutOfBoundsException("Index: "+index);
+        // 调用父类初始化后，设置cursor为index
         return new ListItr(index);
     }
 
@@ -848,6 +859,7 @@ public class ArrayList<E> extends AbstractList<E>
     private class Itr implements Iterator<E> {
         int cursor;       // index of next element to return
         int lastRet = -1; // index of last element returned; -1 if no such
+        // 记录迭代器创建时的modCount
         int expectedModCount = modCount;
 
         Itr() {}
@@ -998,7 +1010,7 @@ public class ArrayList<E> extends AbstractList<E>
      * any way other than via the returned list.  (Structural modifications are
      * those that change the size of this list, or otherwise perturb it in such
      * a fashion that iterations in progress may yield incorrect results.)
-     *
+     * 实际操作的是同一个数组，自列表通过offset维护数组的相对位置
      * @throws IndexOutOfBoundsException {@inheritDoc}
      * @throws IllegalArgumentException {@inheritDoc}
      */
@@ -1275,6 +1287,7 @@ public class ArrayList<E> extends AbstractList<E>
      *
      * @return a {@code Spliterator} over the elements in this list
      * @since 1.8
+     * 可拆分迭代器（并行）
      */
     @Override
     public Spliterator<E> spliterator() {
