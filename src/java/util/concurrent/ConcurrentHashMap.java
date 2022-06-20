@@ -680,6 +680,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * cheapest possible way to reduce systematic lossage, as well as
      * to incorporate impact of the highest bits that would otherwise
      * never be used in index calculations because of table bounds.
+     * 高位参与运算保证hash为正数不和控制位冲突
      */
     static final int spread(int h) {
         return (h ^ (h >>> 16)) & HASH_BITS;
