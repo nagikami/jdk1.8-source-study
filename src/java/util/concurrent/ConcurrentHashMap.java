@@ -775,6 +775,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
 
     /**
      * The next table to use; non-null only while resizing.
+     * 扩容时使用
      */
     private transient volatile Node<K,V>[] nextTable;
 
@@ -839,7 +840,9 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             throw new IllegalArgumentException();
         int cap = ((initialCapacity >= (MAXIMUM_CAPACITY >>> 1)) ?
                    MAXIMUM_CAPACITY :
+                // 3/2 initialCapacity + 1
                    tableSizeFor(initialCapacity + (initialCapacity >>> 1) + 1));
+        // 初始化前sizeCtl保存初始化数组大小
         this.sizeCtl = cap;
     }
 
@@ -1010,59 +1013,77 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     /** Implementation for put and putIfAbsent */
     final V putVal(K key, V value, boolean onlyIfAbsent) {
         if (key == null || value == null) throw new NullPointerException();
+        // 获取hash，高位右移异或后最高位置为0
         int hash = spread(key.hashCode());
         int binCount = 0;
         for (Node<K,V>[] tab = table;;) {
             Node<K,V> f; int n, i, fh;
             if (tab == null || (n = tab.length) == 0)
                 tab = initTable();
+            // 使用Unsafe的getObjectVolatile方法读取table对应index的值
             else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {
+                // CAS添加新节点
                 if (casTabAt(tab, i, null,
                              new Node<K,V>(hash, key, value, null)))
                     break;                   // no lock when adding to empty bin
             }
+            // 传入key对应索引存在节点f，且f的hash为-1，表示节点转发（forwarding nodes），
+            // 说明正在扩容，需要把节点传送到表
             else if ((fh = f.hash) == MOVED)
                 tab = helpTransfer(tab, f);
             else {
                 V oldVal = null;
                 synchronized (f) {
+                    // 表中对应索引的节点未被修改
                     if (tabAt(tab, i) == f) {
+                        // hash为正数为正常node
                         if (fh >= 0) {
                             binCount = 1;
+                            // 链表node计数
                             for (Node<K,V> e = f;; ++binCount) {
                                 K ek;
+                                // 匹配到列表中的node
                                 if (e.hash == hash &&
                                     ((ek = e.key) == key ||
                                      (ek != null && key.equals(ek)))) {
                                     oldVal = e.val;
                                     if (!onlyIfAbsent)
+                                        // 修改value的值
                                         e.val = value;
                                     break;
                                 }
                                 Node<K,V> pred = e;
+                                // 当前链表不存在对应key
                                 if ((e = e.next) == null) {
+                                    // 链表尾部追加新节点
                                     pred.next = new Node<K,V>(hash, key,
                                                               value, null);
                                     break;
                                 }
                             }
                         }
+                        // hash为负数但是桶为TreeBin
                         else if (f instanceof TreeBin) {
                             Node<K,V> p;
                             binCount = 2;
+                            // 查找或者添加节点并返回
                             if ((p = ((TreeBin<K,V>)f).putTreeVal(hash, key,
                                                            value)) != null) {
                                 oldVal = p.val;
                                 if (!onlyIfAbsent)
+                                    // 为node赋值
                                     p.val = value;
                             }
                         }
                     }
                 }
                 if (binCount != 0) {
+                    // bin节点数达到8
                     if (binCount >= TREEIFY_THRESHOLD)
+                        // 链表转树
                         treeifyBin(tab, i);
                     if (oldVal != null)
+                        // 返回旧值
                         return oldVal;
                     break;
                 }
@@ -6305,6 +6326,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             int scale = U.arrayIndexScale(ak);
             if ((scale & (scale - 1)) != 0)
                 throw new Error("data type scale not a power of two");
+            // 去掉前置0后的长度
             ASHIFT = 31 - Integer.numberOfLeadingZeros(scale);
         } catch (Exception e) {
             throw new Error(e);
