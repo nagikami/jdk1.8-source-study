@@ -663,7 +663,7 @@ public abstract class AbstractQueuedSynchronizer
          */
         int ws = node.waitStatus;
         if (ws < 0)
-            // 修改等待状态为0，尝试清空状态，等待signal（唤醒）
+            // 修改等待状态为0，尝试清空状态（next将被唤醒）
             compareAndSetWaitStatus(node, ws, 0);
 
         /*
@@ -738,6 +738,7 @@ public abstract class AbstractQueuedSynchronizer
      */
     private void setHeadAndPropagate(Node node, int propagate) {
         Node h = head; // Record old head for check below
+        // node设置为head
         setHead(node);
         /*
          * Try to signal next queued node if:
@@ -750,7 +751,7 @@ public abstract class AbstractQueuedSynchronizer
          *   The next node is waiting in shared mode,
          *     or we don't know, because it appears null
          *
-         * The conservatism in both of these checks may cause
+         * The conservatism（保守） in both of these checks may cause
          * unnecessary wake-ups, but only when there are multiple
          * racing acquires/releases, so most need signals now or soon
          * anyway.
@@ -758,7 +759,9 @@ public abstract class AbstractQueuedSynchronizer
         if (propagate > 0 || h == null || h.waitStatus < 0 ||
             (h = head) == null || h.waitStatus < 0) {
             Node s = node.next;
+            // 当前head的next是share模式
             if (s == null || s.isShared())
+                // 若head状态变为signal则唤醒下一个共享模式线程，若为0则设置为propagate
                 doReleaseShared();
         }
     }
@@ -833,7 +836,7 @@ public abstract class AbstractQueuedSynchronizer
             /*
              * This node has already set status asking a release
              * to signal it, so it can safely park.
-             * 前驱节点已设置release后唤醒当前节点，所有阻塞当前节点
+             * 前驱节点已设置release后唤醒当前节点，所以阻塞当前节点
              */
             return true;
         if (ws > 0) {
@@ -900,13 +903,13 @@ public abstract class AbstractQueuedSynchronizer
         try {
             boolean interrupted = false;
             // 自旋，循环到前驱设置状态为唤醒下一个时阻塞线程，直到前驱节点变为head，执行完后唤醒当前线程
-            // 唤醒后检查前驱是否为head，是则将自己置为head
+            // 唤醒后检查前驱是否为head，是则尝试获取锁，得到锁后将自己置为head，否则阻塞等待再次唤醒
             for (;;) {
                 // 获取前驱节点
                 final Node p = node.predecessor();
                 // 前驱节点为head，则尝试获取锁
                 if (p == head && tryAcquire(arg)) {
-                    // 获取锁成功，设置新节点为头节点
+                    // 获取锁成功，设置新节点为头节点（不唤醒下一个，区别于share模式）
                     setHead(node);
                     // 前驱节点next置为null，等待GC
                     p.next = null; // help GC
@@ -996,15 +999,21 @@ public abstract class AbstractQueuedSynchronizer
      * @param arg the acquire argument
      */
     private void doAcquireShared(int arg) {
+        // 添加当前线程到等待队列
         final Node node = addWaiter(Node.SHARED);
         boolean failed = true;
         try {
             boolean interrupted = false;
             for (;;) {
+                // 阻塞后被唤醒
                 final Node p = node.predecessor();
+                // 前驱为head
                 if (p == head) {
+                    // 尝试获取锁
                     int r = tryAcquireShared(arg);
+                    // 获取锁成功
                     if (r >= 0) {
+                        // 设置node为head，并传播（唤醒下一个share模式线程）
                         setHeadAndPropagate(node, r);
                         p.next = null; // help GC
                         if (interrupted)
@@ -1013,6 +1022,7 @@ public abstract class AbstractQueuedSynchronizer
                         return;
                     }
                 }
+                // 阻塞
                 if (shouldParkAfterFailedAcquire(p, node) &&
                     parkAndCheckInterrupt())
                     interrupted = true;
@@ -1245,7 +1255,7 @@ public abstract class AbstractQueuedSynchronizer
      *        can represent anything you like.
      */
     public final void acquire(int arg) {
-        // 尝试获得锁，失败则添加到等待队列
+        // 尝试获得锁，失败则添加到等待队列，等待队列中线程获得锁后直接返回（exclusive）
         if (!tryAcquire(arg) &&
             acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
             selfInterrupt();
@@ -1311,7 +1321,9 @@ public abstract class AbstractQueuedSynchronizer
     public final boolean release(int arg) {
         if (tryRelease(arg)) {
             Node h = head;
+            // head存在且状态不为0
             if (h != null && h.waitStatus != 0)
+                // 唤醒下一有效线程
                 unparkSuccessor(h);
             return true;
         }
@@ -1331,6 +1343,7 @@ public abstract class AbstractQueuedSynchronizer
      */
     public final void acquireShared(int arg) {
         if (tryAcquireShared(arg) < 0)
+            // 加入等待队列，对列中的线程获得锁后唤醒下一个share模式的线程获取锁（传播）（shared）
             doAcquireShared(arg);
     }
 
