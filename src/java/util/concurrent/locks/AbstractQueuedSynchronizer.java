@@ -628,6 +628,7 @@ public abstract class AbstractQueuedSynchronizer
             node.prev = pred;
             // 更新tail
             if (compareAndSetTail(pred, node)) {
+                // 此处可能有并发，在此时进行successor唤醒，next为null，因此使用prev进行后向遍历确保不漏掉node
                 pred.next = node;
                 return node;
             }
@@ -676,7 +677,7 @@ public abstract class AbstractQueuedSynchronizer
         if (s == null || s.waitStatus > 0) {
             // 如果next为null或者被取消，则返回null
             s = null;
-            // 从tail向前遍历（因为next可能未初始化（直到attachment后才会为next赋值），
+            // 从tail向前遍历（因为next可能未初始化参考enq，使用next向后遍历可能丢失最后的tail，
             // 所以不是通过next找下一个），找到下一个未取消节点
             for (Node t = tail; t != null && t != node; t = t.prev)
                 if (t.waitStatus <= 0)
@@ -717,7 +718,7 @@ public abstract class AbstractQueuedSynchronizer
                     // 唤醒下一个线程
                     unparkSuccessor(h);
                 }
-                // 状态为0，更新状态为-3（下一个acquireShared需要无条件传播）
+                // 状态为0，更新状态为-3（告诉下一个acquireShared需要无条件传播）
                 else if (ws == 0 &&
                          !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
                     continue;                // loop on failed CAS
@@ -1319,6 +1320,7 @@ public abstract class AbstractQueuedSynchronizer
      * @return the value returned from {@link #tryRelease}
      */
     public final boolean release(int arg) {
+        // 尝试释放锁
         if (tryRelease(arg)) {
             Node h = head;
             // head存在且状态不为0
@@ -1402,6 +1404,7 @@ public abstract class AbstractQueuedSynchronizer
      * @return the value returned from {@link #tryReleaseShared}
      */
     public final boolean releaseShared(int arg) {
+        // 尝试释放锁（共享模式）
         if (tryReleaseShared(arg)) {
             doReleaseShared();
             return true;
