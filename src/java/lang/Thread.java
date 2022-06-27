@@ -942,7 +942,7 @@ class Thread implements Runnable {
      * <p>A thread interruption ignored because a thread was not alive
      * at the time of the interrupt will be reflected by this method
      * returning false.
-     *
+     * 返回是否中断并清空中断状态
      * @return  <code>true</code> if the current thread has been interrupted;
      *          <code>false</code> otherwise.
      * @see #isInterrupted()
