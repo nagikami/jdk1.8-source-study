@@ -164,7 +164,7 @@ public class LockSupport {
      * method to return. Callers should re-check the conditions which caused
      * the thread to park in the first place. Callers may also determine,
      * for example, the interrupt status of the thread upon return.
-     *
+     * 中断时只修改状态，不抛出异常
      * @param blocker the synchronization object responsible for this
      *        thread parking
      * @since 1.6
