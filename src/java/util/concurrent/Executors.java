@@ -395,6 +395,7 @@ public class Executors {
      * called, runs the given task and returns the given result.  This
      * can be useful when applying methods requiring a
      * {@code Callable} to an otherwise resultless action.
+     * 适配runnable到callable
      * @param task the task to run
      * @param result the result to return
      * @param <T> the type of the result
@@ -499,6 +500,7 @@ public class Executors {
 
     /**
      * A callable that runs given task and returns given result
+     * 实现callable接口，执行runnable的run，返回传入的result
      */
     static final class RunnableAdapter<T> implements Callable<T> {
         final Runnable task;

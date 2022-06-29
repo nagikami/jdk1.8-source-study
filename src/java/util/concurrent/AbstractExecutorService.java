@@ -48,6 +48,9 @@ import java.util.*;
  * to return {@code RunnableFuture} implementations other than
  * {@code FutureTask}.
  *
+ * newTaskFor方法默认使用实现RunnableFuture的FutureTask作为任务类，构造任务实例
+ * 子类可重写newTaskFor方法，提供不同于FutureTask的RunnableFuture实现
+ *
  * <p><b>Extension example</b>. Here is a sketch of a class
  * that customizes {@link ThreadPoolExecutor} to use
  * a {@code CustomTask} class instead of the default {@code FutureTask}:
@@ -73,7 +76,7 @@ public abstract class AbstractExecutorService implements ExecutorService {
     /**
      * Returns a {@code RunnableFuture} for the given runnable and default
      * value.
-     *
+     * 包装Runnable作为任务
      * @param runnable the runnable task being wrapped
      * @param value the default value for the returned future
      * @param <T> the type of the given value
@@ -89,7 +92,7 @@ public abstract class AbstractExecutorService implements ExecutorService {
 
     /**
      * Returns a {@code RunnableFuture} for the given callable task.
-     *
+     * 包装Callable作为任务
      * @param callable the callable task being wrapped
      * @param <T> the type of the callable's result
      * @return a {@code RunnableFuture} which, when run, will call the
