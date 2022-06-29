@@ -1764,12 +1764,12 @@ public abstract class AbstractQueuedSynchronizer
     /**
      * Transfers node, if necessary, to sync queue after a cancelled wait.
      * Returns true if thread was cancelled before being signalled.
-     * 在signal前取消await
+     * 取消await后，将node传输到同步队列
      * @param node the node
      * @return true if cancelled before the node was signalled
      */
     final boolean transferAfterCancelledWait(Node node) {
-        // 取消await后，传输到同步等待队列
+        // 取消await后，若node在条件队列则传输到同步队列
         if (compareAndSetWaitStatus(node, Node.CONDITION, 0)) {
             enq(node);
             return true;
@@ -1779,7 +1779,8 @@ public abstract class AbstractQueuedSynchronizer
          * until it finishes its enq().  Cancelling during an
          * incomplete transfer is both rare and transient, so just
          * spin.
-         * 正在执行signal，导致更新状态失败（signal会更新condition为0），
+         * 正在执行signal（此时线程持有的锁已经通过fullyRelease释放，所以其他线程可调用signal)，
+         * 导致更新状态失败（signal会更新condition为0），
          * 需要自旋等待传输到同步队列成功后再次中断
          */
         while (!isOnSyncQueue(node))
@@ -2081,6 +2082,7 @@ public abstract class AbstractQueuedSynchronizer
             // 使用while是因为阻塞可能因为非唤醒行为返回，例如中断
             while (!isOnSyncQueue(node)) {
                 LockSupport.park(this);
+                // 标记中断，但是线程正常运行
                 if (Thread.interrupted())
                     interrupted = true;
             }
@@ -2097,9 +2099,13 @@ public abstract class AbstractQueuedSynchronizer
          * 在条件队列则抛异常，在同步队列则重新中断
          */
 
-        /** Mode meaning to reinterrupt on exit from wait */
+        /** Mode meaning to reinterrupt on exit from wait
+         * 标记中断状态，并抛出异常
+         */
         private static final int REINTERRUPT =  1;
-        /** Mode meaning to throw InterruptedException on exit from wait */
+        /** Mode meaning to throw InterruptedException on exit from wait
+         * 抛出异常
+         */
         private static final int THROW_IE    = -1;
 
         /**
@@ -2109,7 +2115,8 @@ public abstract class AbstractQueuedSynchronizer
          */
         private int checkInterruptWhileWaiting(Node node) {
             /**
-             * 在signal前取消await，抛异常，否则重新中断（在传输中被中断需要重新中断）
+             * 在signal前取消await，抛异常，否则重新中断await线程（改中断状态，抛异常 ）
+             * 为了区分两种状态（在条件队列取消，在同步队列取消）？
              */
             return Thread.interrupted() ?
                 (transferAfterCancelledWait(node) ? THROW_IE : REINTERRUPT) :
@@ -2123,8 +2130,10 @@ public abstract class AbstractQueuedSynchronizer
         private void reportInterruptAfterWait(int interruptMode)
             throws InterruptedException {
             if (interruptMode == THROW_IE)
+                // 抛出异常
                 throw new InterruptedException();
             else if (interruptMode == REINTERRUPT)
+                // 标记中断状态，并抛出异常
                 selfInterrupt();
         }
 
@@ -2155,13 +2164,15 @@ public abstract class AbstractQueuedSynchronizer
              */
             while (!isOnSyncQueue(node)) {
                 LockSupport.park(this);
+                // 如果因为中断被唤醒，则将node传输到同步队列
                 if ((interruptMode = checkInterruptWhileWaiting(node)) != 0)
                     break;
             }
-            // 在同步队列中断，且模式不为抛异常
+            // 正常唤醒，则尝试获取锁，失败后阻塞
+            // await被中断且模式不为抛异常，则模式改为重新中断
             if (acquireQueued(node, savedState) && interruptMode != THROW_IE)
-                // 模式改为重新中断
                 interruptMode = REINTERRUPT;
+            // 删除条件队列无效节点
             if (node.nextWaiter != null) // clean up if cancelled
                 unlinkCancelledWaiters();
             // 存在中断则报告中断
