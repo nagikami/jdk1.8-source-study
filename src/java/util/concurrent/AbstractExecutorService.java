@@ -149,51 +149,67 @@ public abstract class AbstractExecutorService implements ExecutorService {
         int ntasks = tasks.size();
         if (ntasks == 0)
             throw new IllegalArgumentException();
-        // 初始化futures（可获取返回值/取消任务的异步任务接口集）
+        // 初始化futures（可获取返回值/取消任务的异步任务接口）
         ArrayList<Future<T>> futures = new ArrayList<Future<T>>(ntasks);
+        // 初始化ecs
         ExecutorCompletionService<T> ecs =
             new ExecutorCompletionService<T>(this);
 
         // For efficiency, especially in executors with limited
         // parallelism, check to see if previously submitted tasks are
-        // done before submitting more of them. This interleaving
-        // plus the exception mechanics account for messiness of main
+        // done before submitting more of them. This interleaving（交错）
+        // plus the exception mechanics account for messiness（混乱） of main
         // loop.
 
         try {
             // Record exceptions so that if we fail to obtain any
             // result, we can throw the last exception we got.
             ExecutionException ee = null;
+            // 过期时间点
             final long deadline = timed ? System.nanoTime() + nanos : 0L;
+            // 获取任务迭代器
             Iterator<? extends Callable<T>> it = tasks.iterator();
 
             // Start one task for sure; the rest incrementally
+            // 提交任务到ecs，返回Future
             futures.add(ecs.submit(it.next()));
             --ntasks;
             int active = 1;
 
+            // 自旋，直到有任务完成
             for (;;) {
+                // ecs获取完成的任务，poll无参非阻塞
                 Future<T> f = ecs.poll();
+                // 没有完成的任务
                 if (f == null) {
+                    // 若仍有未提交的任务则继续提交任务到ecs
                     if (ntasks > 0) {
                         --ntasks;
                         futures.add(ecs.submit(it.next()));
                         ++active;
                     }
+                    // 已经有完成的任务，退出循环
                     else if (active == 0)
                         break;
+                    // 设置了超时
                     else if (timed) {
+                        // 获取完成的任务，使用poll带超时时间，阻塞到获取到任务或者超时
                         f = ecs.poll(nanos, TimeUnit.NANOSECONDS);
+                        // 未获取到任务，抛出超时异常
                         if (f == null)
                             throw new TimeoutException();
                         nanos = deadline - System.nanoTime();
                     }
                     else
+                        // 阻塞直到获取到任务
                         f = ecs.take();
                 }
+                // 获取到完成的任务
                 if (f != null) {
+                    // 退出活跃状态
                     --active;
                     try {
+                        // 返回完成任务的返回值
                         return f.get();
                     } catch (ExecutionException eex) {
                         ee = eex;
@@ -208,6 +224,7 @@ public abstract class AbstractExecutorService implements ExecutorService {
             throw ee;
 
         } finally {
+            // 取消所有在执行的任务
             for (int i = 0, size = futures.size(); i < size; i++)
                 futures.get(i).cancel(true);
         }
@@ -233,14 +250,17 @@ public abstract class AbstractExecutorService implements ExecutorService {
         throws InterruptedException {
         if (tasks == null)
             throw new NullPointerException();
+        // 初始化futures（可获取返回值/取消任务的异步任务接口）
         ArrayList<Future<T>> futures = new ArrayList<Future<T>>(tasks.size());
         boolean done = false;
         try {
+            // 保存并执行所有任务
             for (Callable<T> t : tasks) {
                 RunnableFuture<T> f = newTaskFor(t);
                 futures.add(f);
                 execute(f);
             }
+            // 等待所有任务执行完成
             for (int i = 0, size = futures.size(); i < size; i++) {
                 Future<T> f = futures.get(i);
                 if (!f.isDone()) {
@@ -254,12 +274,22 @@ public abstract class AbstractExecutorService implements ExecutorService {
             done = true;
             return futures;
         } finally {
+            // 如果未完成，则取消所有任务
             if (!done)
                 for (int i = 0, size = futures.size(); i < size; i++)
                     futures.get(i).cancel(true);
         }
     }
 
+    /**
+     * 带超时的触发所有任务
+     * @param tasks the collection of tasks
+     * @param timeout the maximum time to wait
+     * @param unit the time unit of the timeout argument
+     * @param <T>
+     * @return
+     * @throws InterruptedException
+     */
     public <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks,
                                          long timeout, TimeUnit unit)
         throws InterruptedException {

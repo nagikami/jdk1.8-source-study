@@ -107,24 +107,29 @@ package java.util.concurrent;
 public class ExecutorCompletionService<V> implements CompletionService<V> {
     private final Executor executor;
     private final AbstractExecutorService aes;
+    // 阻塞队列保存完成的QueueingFuture（扩展了FutureTask）
     private final BlockingQueue<Future<V>> completionQueue;
 
     /**
      * FutureTask extension to enqueue upon completion
+     * 对FutureTask进行扩展，完成时入队列
      */
     private class QueueingFuture extends FutureTask<Void> {
         QueueingFuture(RunnableFuture<V> task) {
             super(task, null);
             this.task = task;
         }
+        // 唤醒所有get线程后调用，相当于钩子（hook）
         protected void done() { completionQueue.add(task); }
         private final Future<V> task;
     }
 
     private RunnableFuture<V> newTaskFor(Callable<V> task) {
         if (aes == null)
+            // 没有executor，默认使用FutureTask创建任务
             return new FutureTask<V>(task);
         else
+            // 有executor，使用executor提供的方法创建任务
             return aes.newTaskFor(task);
     }
 
