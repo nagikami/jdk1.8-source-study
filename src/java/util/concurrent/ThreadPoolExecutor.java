@@ -87,7 +87,7 @@ import java.util.*;
  * if the queue is full.  By setting corePoolSize and maximumPoolSize
  * the same, you create a fixed-size thread pool. By setting
  * maximumPoolSize to an essentially unbounded value such as {@code
- * Integer.MAX_VALUE}, you allow the pool to accommodate an arbitrary
+ * Integer.MAX_VALUE}, you allow the pool to accommodate（容纳） an arbitrary
  * number of concurrent tasks. Most typically, core and maximum pool
  * sizes are set only upon construction, but they may also be changed
  * dynamically using {@link #setCorePoolSize} and {@link
@@ -112,16 +112,16 @@ import java.util.*;
  * etc. If a {@code ThreadFactory} fails to create a thread when asked
  * by returning null from {@code newThread}, the executor will
  * continue, but might not be able to execute any tasks. Threads
- * should possess the "modifyThread" {@code RuntimePermission}. If
+ * should possess（拥有） the "modifyThread" {@code RuntimePermission}. If
  * worker threads or other threads using the pool do not possess this
  * permission, service may be degraded: configuration changes may not
- * take effect in a timely manner, and a shutdown pool may remain in a
+ * take effect in a timely manner（及时的方式）, and a shutdown pool may remain in a
  * state in which termination is possible but not completed.</dd>
  *
  * <dt>Keep-alive times</dt>
  *
  * <dd>If the pool currently has more than corePoolSize threads,
- * excess threads will be terminated if they have been idle for more
+ * excess（过量的） threads will be terminated if they have been idle for more
  * than the keepAliveTime (see {@link #getKeepAliveTime(TimeUnit)}).
  * This provides a means of reducing resource consumption when the
  * pool is not being actively used. If the pool becomes more active
@@ -129,10 +129,10 @@ import java.util.*;
  * changed dynamically using method {@link #setKeepAliveTime(long,
  * TimeUnit)}.  Using a value of {@code Long.MAX_VALUE} {@link
  * TimeUnit#NANOSECONDS} effectively disables idle threads from ever
- * terminating prior to shut down. By default, the keep-alive policy
+ * terminating prior to（在...之前） shut down. By default, the keep-alive policy
  * applies only when there are more than corePoolSize threads. But
  * method {@link #allowCoreThreadTimeOut(boolean)} can be used to
- * apply this time-out policy to core threads as well, so long as the
+ * apply this time-out policy to core threads as well, so long as（只要） the
  * keepAliveTime value is non-zero. </dd>
  *
  * <dt>Queuing</dt>
