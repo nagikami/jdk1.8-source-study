@@ -159,7 +159,7 @@ import java.util.*;
  * There are three general strategies for queuing:
  * <ol>
  *
- * <li> <em> Direct handoffs.</em> A good default choice for a work
+ * <li> <em> Direct handoffs（交接）.</em> A good default choice for a work
  * queue is a {@link SynchronousQueue} that hands off tasks to threads
  * without otherwise holding them. Here, an attempt to queue a task
  * will fail if no threads are immediately available to run it, so a
@@ -179,7 +179,7 @@ import java.util.*;
  * each task is completely independent of others, so tasks cannot
  * affect each others execution; for example, in a web page server.
  * While this style of queuing can be useful in smoothing out
- * transient bursts of requests, it admits the possibility of
+ * transient（瞬时） bursts（爆发） of requests, it admits the possibility of
  * unbounded work queue growth when commands continue to arrive on
  * average faster than they can be processed.  </li>
  *
@@ -205,7 +205,7 @@ import java.util.*;
  * <dd>New tasks submitted in method {@link #execute(Runnable)} will be
  * <em>rejected</em> when the Executor has been shut down, and also when
  * the Executor uses finite bounds for both maximum threads and work queue
- * capacity, and is saturated.  In either case, the {@code execute} method
+ * capacity, and is saturated（饱和的）.  In either case, the {@code execute} method
  * invokes the {@link
  * RejectedExecutionHandler#rejectedExecution(Runnable, ThreadPoolExecutor)}
  * method of its {@link RejectedExecutionHandler}.  Four predefined handler
@@ -248,6 +248,7 @@ import java.util.*;
  * Additionally, method {@link #terminated} can be overridden to perform
  * any special processing that needs to be done once the Executor has
  * fully terminated.
+ * beforeExecute、afterExecute 钩子函数
  *
  * <p>If hook or callback methods throw exceptions, internal worker
  * threads may in turn fail and abruptly terminate.</dd>
@@ -324,8 +325,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     /**
      * The main pool control state, ctl, is an atomic integer packing
      * two conceptual fields
-     *   workerCount, indicating the effective number of threads
-     *   runState,    indicating whether running, shutting down etc
+     *   workerCount, indicating the effective number of threads 有效线程数
+     *   runState,    indicating whether running, shutting down etc 运行状态
      *
      * In order to pack them into one int, we limit workerCount to
      * (2^29)-1 (about 500 million) threads rather than (2^31)-1 (2
@@ -336,11 +337,12 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      *
      * The workerCount is the number of workers that have been
      * permitted to start and not permitted to stop.  The value may be
-     * transiently different from the actual number of live threads,
+     * transiently（暂时地） different from the actual number of live threads,
      * for example when a ThreadFactory fails to create a thread when
      * asked, and when exiting threads are still performing
      * bookkeeping before terminating. The user-visible pool size is
      * reported as the current size of the workers set.
+     * 代表已经启动但尚未停止的线程数，可能暂时不等于当前存活线程数（例如创建线程失败（多一）、退出的线程仍然执行任务（少一））
      *
      * The runState provides the main lifecycle control, taking on values:
      *
@@ -378,19 +380,29 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * that workerCount is 0 (which sometimes entails a recheck -- see
      * below).
      */
+    // 101
     private final AtomicInteger ctl = new AtomicInteger(ctlOf(RUNNING, 0));
+    // 29
     private static final int COUNT_BITS = Integer.SIZE - 3;
+    // 2 ^ 30 - 1
     private static final int CAPACITY   = (1 << COUNT_BITS) - 1;
 
     // runState is stored in the high-order bits
+    // 101
     private static final int RUNNING    = -1 << COUNT_BITS;
+    // 000
     private static final int SHUTDOWN   =  0 << COUNT_BITS;
+    // 001
     private static final int STOP       =  1 << COUNT_BITS;
+    // 010
     private static final int TIDYING    =  2 << COUNT_BITS;
+    // 011
     private static final int TERMINATED =  3 << COUNT_BITS;
 
     // Packing and unpacking ctl
+    // 保留前3位
     private static int runStateOf(int c)     { return c & ~CAPACITY; }
+    // 保留后29位
     private static int workerCountOf(int c)  { return c & CAPACITY; }
     private static int ctlOf(int rs, int wc) { return rs | wc; }
 
@@ -413,6 +425,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 
     /**
      * Attempts to CAS-increment the workerCount field of ctl.
+     * 自增工作线程数
      */
     private boolean compareAndIncrementWorkerCount(int expect) {
         return ctl.compareAndSet(expect, expect + 1);
@@ -420,6 +433,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 
     /**
      * Attempts to CAS-decrement the workerCount field of ctl.
+     * 自减工作线程数
      */
     private boolean compareAndDecrementWorkerCount(int expect) {
         return ctl.compareAndSet(expect, expect - 1);
@@ -429,6 +443,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * Decrements the workerCount field of ctl. This is called only on
      * abrupt termination of a thread (see processWorkerExit). Other
      * decrements are performed within getTask.
+     * 自旋直到自减成功
      */
     private void decrementWorkerCount() {
         do {} while (! compareAndDecrementWorkerCount(ctl.get()));
@@ -438,7 +453,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * The queue used for holding tasks and handing off to worker
      * threads.  We do not require that workQueue.poll() returning
      * null necessarily means that workQueue.isEmpty(), so rely
-     * solely on isEmpty to see if the queue is empty (which we must
+     * solely（独自） on isEmpty to see if the queue is empty (which we must
      * do for example when deciding whether to transition from
      * SHUTDOWN to TIDYING).  This accommodates special-purpose
      * queues such as DelayQueues for which poll() is allowed to
@@ -456,7 +471,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * Otherwise exiting threads would concurrently interrupt those
      * that have not yet interrupted. It also simplifies some of the
      * associated statistics bookkeeping of largestPoolSize etc. We
-     * also hold mainLock on shutdown and shutdownNow, for the sake of
+     * also hold mainLock on shutdown and shutdownNow, for the sake of（为了）
      * ensuring workers set is stable while separately checking
      * permission to interrupt and actually interrupting.
      */
@@ -512,7 +527,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     private volatile ThreadFactory threadFactory;
 
     /**
-     * Handler called when saturated or shutdown in execute.
+     * Handler called when saturated or shutdown in execute. 执行器饱和或者shutdown时调用
      */
     private volatile RejectedExecutionHandler handler;
 
@@ -528,6 +543,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * If false (default), core threads stay alive even when idle.
      * If true, core threads use keepAliveTime to time out waiting
      * for work.
+     * 是否开启核心线程超时
      */
     private volatile boolean allowCoreThreadTimeOut;
 
@@ -602,7 +618,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          */
         private static final long serialVersionUID = 6138294804551838833L;
 
-        /** Thread this worker is running in.  Null if factory fails. */
+        /** Thread this worker is running in.  Null if factory fails.当前工作线程 */
         final Thread thread;
         /** Initial task to run.  Possibly null. */
         Runnable firstTask;
@@ -614,12 +630,13 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          * @param firstTask the first task (null if none)
          */
         Worker(Runnable firstTask) {
+            // 更新状态为-1
             setState(-1); // inhibit interrupts until runWorker
             this.firstTask = firstTask;
             this.thread = getThreadFactory().newThread(this);
         }
 
-        /** Delegates main run loop to outer runWorker  */
+        /** Delegates main run loop to outer runWorker 代理主循环到外部的runWorker */
         public void run() {
             runWorker(this);
         }
@@ -668,15 +685,17 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      */
 
     /**
-     * Transitions runState to given target, or leaves it alone if
+     * Transitions runState to given target, or leaves it alone（不管） if
      * already at least the given target.
-     *
+     * 更改运行状态
      * @param targetState the desired state, either SHUTDOWN or STOP
      *        (but not TIDYING or TERMINATED -- use tryTerminate for that)
      */
     private void advanceRunState(int targetState) {
+        // 自旋
         for (;;) {
             int c = ctl.get();
+            // 当前状态值大于目标状态值，或者小于目标值且更新状态成功
             if (runStateAtLeast(c, targetState) ||
                 ctl.compareAndSet(c, ctlOf(targetState, workerCountOf(c))))
                 break;
