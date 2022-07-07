@@ -404,7 +404,7 @@ public class FutureTask<V> implements RunnableFuture<V> {
         for (WaitNode q; (q = waiters) != null;) {
             // 尝试将waiters置为null成功
             if (UNSAFE.compareAndSwapObject(this, waitersOffset, q, null)) {
-                // 取消链表所有节点
+                // 删除并唤醒等待链表所有节点
                 for (;;) {
                     // 获取线程
                     Thread t = q.thread;
