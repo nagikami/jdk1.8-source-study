@@ -57,6 +57,7 @@ import java.util.concurrent.locks.LockSupport;
  * value and status), and may be used as a {@link CompletionStage},
  * supporting dependent functions and actions that trigger upon its
  * completion.
+ * Future可以支持直接完成或者完成阶段（将完成过程分解为多个阶段并提供扩展点）
  *
  * <p>When two or more threads attempt to
  * {@link #complete complete},
@@ -64,7 +65,7 @@ import java.util.concurrent.locks.LockSupport;
  * {@link #cancel cancel}
  * a CompletableFuture, only one of them succeeds.
  *
- * <p>In addition to these and related methods for directly
+ * <p>In addition to（除了） these and related methods for directly
  * manipulating status and results, CompletableFuture implements
  * interface {@link CompletionStage} with the following policies: <ul>
  *
@@ -72,14 +73,15 @@ import java.util.concurrent.locks.LockSupport;
  * <em>non-async</em> methods may be performed by the thread that
  * completes the current CompletableFuture, or by any other caller of
  * a completion method.</li>
- *
+ * 同步（non-async）的action由completion方法的调用者执行
  * <li>All <em>async</em> methods without an explicit Executor
  * argument are performed using the {@link ForkJoinPool#commonPool()}
  * (unless it does not support a parallelism level of at least two, in
  * which case, a new Thread is created to run each task).  To simplify
  * monitoring, debugging, and tracking, all generated asynchronous
  * tasks are instances of the marker interface {@link
- * AsynchronousCompletionTask}. </li>
+ * AsynchronousCompletionTask}. </li>、
+ * 异步（async）方法由ForkJoinPool的commonPool执行
  *
  * <li>All CompletionStage methods are implemented independently of
  * other public methods, so the behavior of one method is not impacted
@@ -96,7 +98,7 @@ import java.util.concurrent.locks.LockSupport;
  * {@link #isCompletedExceptionally} can be used to determine if a
  * CompletableFuture completed in any exceptional fashion.</li>
  *
- * <li>In case of exceptional completion with a CompletionException,
+ * <li>In case of（如果） exceptional completion with a CompletionException,
  * methods {@link #get()} and {@link #get(long, TimeUnit)} throw an
  * {@link ExecutionException} with the same cause as held in the
  * corresponding CompletionException.  To simplify usage in most
@@ -122,7 +124,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      * AltResult is used to box null as a result, as well as to hold
      * exceptions.  Using a single field makes completion simple to
      * detect and trigger.  Encoding and decoding is straightforward
-     * but adds to the sprawl of trapping and associating exceptions
+     * but adds to the sprawl（蔓延） of trapping and associating exceptions
      * with targets.  Minor simplifications rely on (static) NIL (to
      * box null results) being the only AltResult with a null
      * exception field, so we don't usually need explicit comparisons.
@@ -138,7 +140,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      * (CoCompletion, used by the second of two sources), zero-input
      * source actions, and Signallers that unblock waiters. Class
      * Completion extends ForkJoinTask to enable async execution
-     * (adding no space overhead because we exploit its "tag" methods
+     * (adding no space overhead（开销） because we exploit（利用） its "tag" methods
      * to maintain claims). It is also declared as Runnable to allow
      * usage with arbitrary executors.
      *
@@ -151,8 +153,9 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      *   boringly similar, differing from others only with respect to
      *   underlying functional forms. We do this so that users don't
      *   encounter layers of adaptors in common usages. We also
-     *   include "Relay" classes/methods that don't correspond to user
+     *   include "Relay"（中继） classes/methods that don't correspond to user
      *   methods; they copy results from one stage to another.
+     *   使用中继类、方法，把result在stage之间传递
      *
      * * Boolean CompletableFuture method x(...) (for example
      *   uniApply) takes all of the arguments needed to check that an
@@ -202,7 +205,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      * SynchronousQueue. See their internal documentation for
      * algorithmic details.
      *
-     * Without precautions, CompletableFutures would be prone to
+     * Without precautions, CompletableFutures would be prone to（倾向于）
      * garbage accumulation as chains of Completions build up, each
      * pointing back to its sources. So we null out fields as soon as
      * possible (see especially method Completion.detach). The
@@ -215,7 +218,9 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      * publication.
      */
 
+    // 任务执行结果
     volatile Object result;       // Either the result or boxed AltResult
+
     volatile Completion stack;    // Top of Treiber stack of dependent actions
 
     final boolean internalComplete(Object r) { // CAS from null to r

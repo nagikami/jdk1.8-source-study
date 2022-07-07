@@ -56,16 +56,16 @@ import java.lang.reflect.Constructor;
  * Abstract base class for tasks that run within a {@link ForkJoinPool}.
  * A {@code ForkJoinTask} is a thread-like entity that is much
  * lighter weight than a normal thread.  Huge numbers of tasks and
- * subtasks may be hosted by a small number of actual threads in a
+ * subtasks may be hosted（托管） by a small number of actual threads in a
  * ForkJoinPool, at the price of some usage limitations.
  *
  * <p>A "main" {@code ForkJoinTask} begins execution when it is
  * explicitly submitted to a {@link ForkJoinPool}, or, if not already
- * engaged in a ForkJoin computation, commenced in the {@link
+ * engaged in a ForkJoin computation, commenced（开始） in the {@link
  * ForkJoinPool#commonPool()} via {@link #fork}, {@link #invoke}, or
  * related methods.  Once started, it will usually in turn start other
  * subtasks.  As indicated by the name of this class, many programs
- * using {@code ForkJoinTask} employ only methods {@link #fork} and
+ * using {@code ForkJoinTask} employ（雇佣） only methods {@link #fork} and
  * {@link #join}, or derivatives such as {@link
  * #invokeAll(ForkJoinTask...) invokeAll}.  However, this class also
  * provides a number of other methods that can come into play in
@@ -73,8 +73,8 @@ import java.lang.reflect.Constructor;
  * of new forms of fork/join processing.
  *
  * <p>A {@code ForkJoinTask} is a lightweight form of {@link Future}.
- * The efficiency of {@code ForkJoinTask}s stems from a set of
- * restrictions (that are only partially statically enforceable)
+ * The efficiency of {@code ForkJoinTask}s stems from（源于） a set of
+ * restrictions (that are only partially（部分） statically（静态） enforceable（可执行）)
  * reflecting their main use as computational tasks calculating pure
  * functions or operating on purely isolated objects.  The primary
  * coordination mechanisms are {@link #fork}, that arranges
@@ -98,6 +98,7 @@ import java.lang.reflect.Constructor;
  * for example using {@code ex.printStackTrace()}) of both the thread
  * that initiated the computation as well as the thread actually
  * encountering the exception; minimally only the latter.
+ * 异常抛出尽可能保存计算初始化线程和执行线程
  *
  * <p>It is possible to define and use ForkJoinTasks that may block,
  * but doing do requires three further considerations: (1) Completion
@@ -133,6 +134,7 @@ import java.lang.reflect.Constructor;
  * should be performed innermost-first. For example, {@code a.fork();
  * b.fork(); b.join(); a.join();} is likely to be substantially more
  * efficient than joining {@code a} before {@code b}.
+ * fork、join可以内部闭合时效率更高
  *
  * <p>The execution status of tasks may be queried at several levels
  * of detail: {@link #isDone} is true if a task completed in any way
@@ -158,7 +160,7 @@ import java.lang.reflect.Constructor;
  * methods supplied by this base class.
  *
  * <p>Method {@link #join} and its variants are appropriate for use
- * only when completion dependencies are acyclic; that is, the
+ * only when completion dependencies are acyclic（无环路的）; that is, the
  * parallel computation can be described as a directed acyclic graph
  * (DAG). Otherwise, executions may encounter a form of deadlock as
  * tasks cyclically wait for each other.  However, this framework
@@ -189,7 +191,7 @@ import java.lang.reflect.Constructor;
  *
  * <p>ForkJoinTasks should perform relatively small amounts of
  * computation. Large tasks should be split into smaller subtasks,
- * usually via recursive decomposition. As a very rough rule of thumb,
+ * usually via recursive decomposition（分解）. As a very rough rule of thumb,
  * a task should perform more than 100 and less than 10000 basic
  * computational steps, and should avoid indefinite looping. If tasks
  * are too big, then parallelism cannot improve throughput. If too
@@ -214,7 +216,7 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
     /*
      * See the internal documentation of class ForkJoinPool for a
      * general implementation overview.  ForkJoinTasks are mainly
-     * responsible for maintaining their "status" field amidst relays
+     * responsible for maintaining their "status" field amidst（围绕） relays
      * to methods in ForkJoinWorkerThread and ForkJoinPool.
      *
      * The methods of this class are more-or-less layered into
@@ -235,8 +237,8 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
      * set.  Completion of a stolen task with SIGNAL set awakens any
      * waiters via notifyAll. Even though suboptimal for some
      * purposes, we use basic builtin wait/notify to take advantage of
-     * "monitor inflation" in JVMs that we would otherwise need to
-     * emulate to avoid adding further per-task bookkeeping overhead.
+     * "monitor inflation（膨胀）" in JVMs that we would otherwise need to
+     * emulate（模仿） to avoid adding further per-task bookkeeping overhead.
      * We want these monitors to be "fat", i.e., not use biasing or
      * thin-lock techniques, so use some odd coding idioms that tend
      * to avoid them, mainly by arranging that every synchronized
@@ -249,27 +251,39 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
 
     /** The run status of this task */
     volatile int status; // accessed directly by pool and workers
+    // 补码 1111 原码 1001
     static final int DONE_MASK   = 0xf0000000;  // mask out non-completion bits
+    // 补码 1111 原码 1001
     static final int NORMAL      = 0xf0000000;  // must be negative
+    // 补码 1100 原码 1011
     static final int CANCELLED   = 0xc0000000;  // must be < NORMAL
+    // 补码 1011 原码 1100
     static final int EXCEPTIONAL = 0x80000000;  // must be < CANCELLED
+    // 2 ^ 16
     static final int SIGNAL      = 0x00010000;  // must be >= 1 << 16
     static final int SMASK       = 0x0000ffff;  // short bits for tags
 
     /**
      * Marks completion and wakes up threads waiting to join this
      * task.
-     *
+     * 标记完成并唤醒等待join此任务的线程
      * @param completion one of NORMAL, CANCELLED, EXCEPTIONAL
      * @return completion status on exit
      */
     private int setCompletion(int completion) {
+        // 自旋
         for (int s;;) {
+            // 任务完成
             if ((s = status) < 0)
+                // 返回状态
                 return s;
+            // 任务未完成，则尝试更新状态为
             if (U.compareAndSwapInt(this, STATUS, s, s | completion)) {
+                // 高16位有值
                 if ((s >>> 16) != 0)
+                    // 唤醒所有等待join的线程
                     synchronized (this) { notifyAll(); }
+                // 返回结果
                 return completion;
             }
         }
@@ -284,13 +298,17 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
      */
     final int doExec() {
         int s; boolean completed;
+        // 任务尚未执行
         if ((s = status) >= 0) {
             try {
+                // 执行任务
                 completed = exec();
             } catch (Throwable rex) {
                 return setExceptionalCompletion(rex);
             }
+            // 任务执行完成
             if (completed)
+                // 设置状态为NORMAL（正常执行）
                 s = setCompletion(NORMAL);
         }
         return s;
@@ -304,12 +322,16 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
      */
     final void internalWait(long timeout) {
         int s;
+        // 任务未执行完成且更新状态为SIGNAL成功
         if ((s = status) >= 0 && // force completer to issue notify
             U.compareAndSwapInt(this, STATUS, s, s | SIGNAL)) {
             synchronized (this) {
+                // 任务未完成
                 if (status >= 0)
+                    // 阻塞线程，等待超时、正常或者中断被唤醒
                     try { wait(timeout); } catch (InterruptedException ie) { }
                 else
+                    // 任务已完成，唤醒等待线程
                     notifyAll();
             }
         }
@@ -317,6 +339,7 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
 
     /**
      * Blocks a non-worker-thread until completion.
+     * 阻塞非工作线程直到完成
      * @return status upon completion
      */
     private int externalAwaitDone() {

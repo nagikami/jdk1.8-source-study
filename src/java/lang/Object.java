@@ -276,7 +276,7 @@ public class Object {
      * {@code wait} methods.
      * <p>
      * The awakened threads will not be able to proceed until the current
-     * thread relinquishes the lock on this object. The awakened threads
+     * thread relinquishes（放弃） the lock on this object. The awakened threads
      * will compete in the usual manner with any other threads that might
      * be actively competing to synchronize on this object; for example,
      * the awakened threads enjoy no reliable privilege or disadvantage in
@@ -305,7 +305,7 @@ public class Object {
      * This method causes the current thread (call it <var>T</var>) to
      * place itself in the wait set for this object and then to relinquish
      * any and all synchronization claims on this object. Thread <var>T</var>
-     * becomes disabled for thread scheduling purposes and lies dormant
+     * becomes disabled for thread scheduling purposes and lies dormant（休眠）
      * until one of four things happens:
      * <ul>
      * <li>Some other thread invokes the {@code notify} method for this
@@ -330,6 +330,7 @@ public class Object {
      * {@code wait} method, the synchronization state of the object and of
      * thread {@code T} is exactly as it was when the {@code wait} method
      * was invoked.
+     * 本唤醒后线程状态和调用wait时一致
      * <p>
      * A thread can also wake up without being notified, interrupted, or
      * timing out, a so-called <i>spurious wakeup</i>.  While this will rarely
