@@ -80,7 +80,7 @@ public class ForkJoinWorkerThread extends Thread {
 
     /**
      * Creates a ForkJoinWorkerThread operating in the given pool.
-     *
+     * 创建ForkJoinWorkerThread
      * @param pool the pool this thread works in
      * @throws NullPointerException if pool is null
      */
@@ -88,6 +88,7 @@ public class ForkJoinWorkerThread extends Thread {
         // Use a placeholder until a useful name can be set in registerWorker
         super("aForkJoinWorkerThread");
         this.pool = pool;
+        // 注册线程到线程池，并返回任务队列（一个Deque数组）
         this.workQueue = pool.registerWorker(this);
     }
 

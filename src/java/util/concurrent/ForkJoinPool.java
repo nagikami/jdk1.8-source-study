@@ -56,7 +56,7 @@ import java.security.Permissions;
 
 /**
  * An {@link ExecutorService} for running {@link ForkJoinTask}s.
- * A {@code ForkJoinPool} provides the entry point for submissions
+ * A {@code ForkJoinPool} provides the entry point for submissions（提交的任务）
  * from non-{@code ForkJoinTask} clients, as well as management and
  * monitoring operations.
  *
@@ -65,26 +65,29 @@ import java.security.Permissions;
  * <em>work-stealing</em>: all threads in the pool attempt to find and
  * execute tasks submitted to the pool and/or created by other active
  * tasks (eventually blocking waiting for work if none exist). This
- * enables efficient processing when most tasks spawn other subtasks
+ * enables efficient processing when most tasks spawn（催生） other subtasks
  * (as do most {@code ForkJoinTask}s), as well as when many small
  * tasks are submitted to the pool from external clients.  Especially
  * when setting <em>asyncMode</em> to true in constructors, {@code
  * ForkJoinPool}s may also be appropriate for use with event-style
  * tasks that are never joined.
+ * 所有线程需要执行外部提交到线程池的任务和有活跃任务创建的任务
+ * 在开启asyncMode时，ForkJoinPool也可以处理事件风格的任务（无需join）
  *
  * <p>A static {@link #commonPool()} is available and appropriate for
  * most applications. The common pool is used by any ForkJoinTask that
  * is not explicitly submitted to a specified pool. Using the common
  * pool normally reduces resource usage (its threads are slowly
- * reclaimed during periods of non-use, and reinstated upon subsequent
+ * reclaimed during periods of non-use, and reinstated（复原） upon subsequent
  * use).
+ * 默认持有commonPool用于执行为指定线程池的提交任务，且commonPool执行完成后会复原
  *
  * <p>For applications that require separate or custom pools, a {@code
  * ForkJoinPool} may be constructed with a given target parallelism
  * level; by default, equal to the number of available processors.
  * The pool attempts to maintain enough active (or available) threads
  * by dynamically adding, suspending, or resuming internal worker
- * threads, even if some tasks are stalled waiting to join others.
+ * threads, even if some tasks are stalled（停滞） waiting to join others.
  * However, no such adjustments are guaranteed in the face of blocked
  * I/O or other unmanaged synchronization. The nested {@link
  * ManagedBlocker} interface enables extension of the kinds of
@@ -108,6 +111,7 @@ import java.security.Permissions;
  * use the within-computation forms listed in the table unless using
  * async event-style tasks that are not usually joined, in which case
  * there is little difference among choice of methods.
+ * 提供支持通用任务（Runnable、Callable）的方法
  *
  * <table BORDER CELLPADDING=3 CELLSPACING=1>
  * <caption>Summary of task execution methods</caption>
@@ -136,6 +140,7 @@ import java.security.Permissions;
  * <p>The common pool is by default constructed with default
  * parameters, but these may be controlled by setting three
  * {@linkplain System#getProperty system properties}:
+ * 可以通过系统属性配置common pool
  * <ul>
  * <li>{@code java.util.concurrent.ForkJoinPool.common.parallelism}
  * - the parallelism level, a non-negative integer
@@ -158,7 +163,7 @@ import java.security.Permissions;
  * maximum number of running threads to 32767. Attempts to create
  * pools with greater than the maximum number result in
  * {@code IllegalArgumentException}.
- *
+ * 最大线程数为32767
  * <p>This implementation rejects submitted tasks (that is, by throwing
  * {@link RejectedExecutionException}) only when the pool is shut down
  * or internal resources have been exhausted.
@@ -187,6 +192,8 @@ public class ForkJoinPool extends AbstractExecutorService {
      * their main rationale and descriptions are presented here;
      * individual methods and nested classes contain only brief
      * comments about details.
+     * 来自非FJ线程提交的任务进入提交任务队列（submission queue）
+     * 每个工作线程优先处理自己的任务队列（work-stealing queue），处理完后可以随机处理其他线程的任务
      *
      * WorkQueues
      * ==========
@@ -212,7 +219,9 @@ public class ForkJoinPool extends AbstractExecutorService {
      * numbers of tasks. To accomplish this, we shift the CAS
      * arbitrating pop vs poll (steal) from being on the indices
      * ("base" and "top") to the slots themselves.
+     * 包含3个方法，push和pop只能被当前线程调用，poll（steal）可以被其他线程调用（任务窃取）
      *
+     * 使用数组实现Deque
      * Adding tasks then takes the form of a classic array push(task):
      *    q.array[q.top] = task; ++q.top;
      *
@@ -221,12 +230,14 @@ public class ForkJoinPool extends AbstractExecutorService {
      * workers to start scanning -- see below.)  Both a successful pop
      * and poll mainly entail a CAS of a slot from non-null to null.
      *
+     * 删除并返回top（顶）
      * The pop operation (always performed by owner) is:
      *   if ((base != top) and
      *        (the task at top slot is not null) and
      *        (CAS slot to null))
      *           decrement top and return task;
      *
+     * 删除并返回base（底）
      * And the poll operation (usually by a stealer) is
      *    if ((base != top) and
      *        (the task at base slot is not null) and
@@ -254,6 +265,7 @@ public class ForkJoinPool extends AbstractExecutorService {
      * variants that try once at the apparent base index, else
      * consider alternative actions, rather than method poll, which
      * retries.)
+     * 如果窃取（poll）一个队列失败会随机选择另一个队列再次尝试，而不是阻塞等待当前队列被窃取成功
      *
      * This approach also enables support of a user mode in which
      * local task processing is in FIFO, not LIFO order, simply by
@@ -264,7 +276,7 @@ public class ForkJoinPool extends AbstractExecutorService {
      * performance on a given machine, but portably provide good
      * throughput by averaging over these factors.  Further, even if
      * we did try to use such information, we do not usually have a
-     * basis for exploiting it.  For example, some sets of tasks
+     * basis for exploiting（利用） it.  For example, some sets of tasks
      * profit from cache affinities, but others are harmed by cache
      * pollution effects. Additionally, even though it requires
      * scanning, long-term throughput is often best using random
@@ -291,6 +303,7 @@ public class ForkJoinPool extends AbstractExecutorService {
      * unlockable value (-1) at shutdown. Unlocking still can be and
      * is performed by cheaper ordered writes of "qlock" in successful
      * cases, but uses CAS in unsuccessful cases.
+     * 提交的任务放入提交任务队列并由提交的线程处理（通过hash绑定关联的队列）
      *
      * Management
      * ==========
@@ -332,6 +345,7 @@ public class ForkJoinPool extends AbstractExecutorService {
      * internal Object to use as a monitor, the "stealCounter" (an
      * AtomicLong) is used when available (it too must be lazily
      * initialized; see externalSubmit).
+     * runState有锁状态位，可以作为锁使用
      *
      * Usages of "runState" vs "ctl" interact in only one case:
      * deciding to add a worker thread (see tryAddWorker), in which
@@ -351,6 +365,7 @@ public class ForkJoinPool extends AbstractExecutorService {
      * a maximum of 64 slots, to limit growth even if array needs to
      * expand to add more workers. Grouping them together in this way
      * simplifies and speeds up task scanning.
+     * 保存WorkQueues的数组，奇数位为内部任务（由FJ线程创建）队列，偶数为外部提交任务队列
      *
      * All worker thread creation is on-demand, triggered by task
      * submissions, replacement of terminated workers, and/or
@@ -362,13 +377,14 @@ public class ForkJoinPool extends AbstractExecutorService {
      * constructions here). In essence, the workQueues array serves as
      * a weak reference mechanism. Thus for example the stack top
      * subfield of ctl stores indices, not references.
+     * 为了不会因引用而影响GC，对队列的访问都通过数组索引（类似于弱引用）完成
      *
      * Queuing Idle Workers. Unlike HPC work-stealing frameworks, we
      * cannot let workers spin indefinitely scanning for tasks when
      * none can be found immediately, and we cannot start/resume
      * workers unless there appear to be tasks available.  On the
      * other hand, we must quickly prod them into action when new
-     * tasks are submitted or generated. In many usages, ramp-up time
+     * tasks are submitted or generated. In many usages, ramp-up（逐步提高） time
      * to activate workers is the main limiting factor in overall
      * performance, which is compounded at program start-up by JIT
      * compilation and allocation. So we streamline this as much as
@@ -381,8 +397,8 @@ public class ForkJoinPool extends AbstractExecutorService {
      * that there are no more tasks to execute. The "queue" is
      * actually a form of Treiber stack.  A stack is ideal for
      * activating threads in most-recently used order. This improves
-     * performance and locality, outweighing the disadvantages of
-     * being prone to contention and inability to release a worker
+     * performance and locality, outweighing（超过） the disadvantages of
+     * being prone to（倾向于） contention and inability to release a worker
      * unless it is topmost on stack.  We park/unpark workers after
      * pushing on the idle worker stack (represented by the lower
      * 32bit subfield of ctl) when they cannot find work.  The top
@@ -390,6 +406,7 @@ public class ForkJoinPool extends AbstractExecutorService {
      * worker: its index and status, plus a version counter that, in
      * addition to the count subfields (also serving as version
      * stamps) provide protection against Treiber stack ABA effects.
+     * 空闲线程保存在栈中，栈状态属性保存线程的scanState属性（包含索引、状态和版本信息）
      *
      * Field scanState is used by both workers and the pool to manage
      * and track whether a worker is INACTIVE (possibly blocked
@@ -402,6 +419,7 @@ public class ForkJoinPool extends AbstractExecutorService {
      * scanState must hold its pool index. So we place the index there
      * upon initialization (see registerWorker) and otherwise keep it
      * there or restore it when necessary.
+     * 当线程INACTIVE时（等待唤醒或者扫描任务），设置scanState属性
      *
      * Memory ordering.  See "Correct and Efficient Work-Stealing for
      * Weak Memory Models" by Le, Pop, Cohen, and Nardelli, PPoPP 2013
@@ -417,11 +435,11 @@ public class ForkJoinPool extends AbstractExecutorService {
      * CAS.  Array slots are read using the emulation of volatiles
      * provided by Unsafe.  Access from other threads to WorkQueue
      * base, top, and array requires a volatile load of the first of
-     * any of these read.  We use the convention of declaring the
+     * any of these read.  We use the convention（惯例） of declaring the
      * "base" index volatile, and always read it before other fields.
      * The owner thread must ensure ordered updates, so writes use
-     * ordered intrinsics unless they can piggyback on those for other
-     * writes.  Similar conventions and rationales hold for other
+     * ordered intrinsics（特征） unless they can piggyback（捎带） on those for other
+     * writes.  Similar conventions and rationales（理论） hold for other
      * WorkQueue fields (such as "currentSteal") that are only written
      * by owners but observed by others.
      *
@@ -441,7 +459,7 @@ public class ForkJoinPool extends AbstractExecutorService {
      * of the workQueues array. We treat the array as a simple
      * power-of-two hash table, expanding as needed. The seedIndex
      * increment ensures no collisions until a resize is needed or a
-     * worker is deregistered and replaced, and thereafter keeps
+     * worker is deregistered and replaced, and thereafter（随后） keeps
      * probability of collision low. We cannot use
      * ThreadLocalRandom.getProbe() for similar purposes here because
      * the thread has not started yet, but do so for creating
@@ -479,23 +497,24 @@ public class ForkJoinPool extends AbstractExecutorService {
      * external submission) to a previously (possibly) empty queue,
      * workers are signalled if idle, or created if fewer exist than
      * the given parallelism level.  These primary signals are
-     * buttressed by others whenever other threads remove a task from
+     * buttressed（对接） by others whenever other threads remove a task from
      * a queue and notice that there are other tasks there as well.
      * On most platforms, signalling (unpark) overhead time is
      * noticeably long, and the time between signalling a thread and
      * it actually making progress can be very noticeably long, so it
-     * is worth offloading these delays from critical paths as much as
+     * is worth offloading（卸载） these delays from critical paths as much as
      * possible. Also, because inactive workers are often rescanning
      * or spinning rather than blocking, we set and clear the "parker"
      * field of WorkQueues to reduce unnecessary calls to unpark.
      * (This requires a secondary recheck to avoid missed signals.)
+     * 为了放弃扫描任务但还未加入等待队列的线程被通知，需要二次检查
      *
      * Trimming workers. To release resources after periods of lack of
-     * use, a worker starting to wait when the pool is quiescent will
+     * use, a worker starting to wait when the pool is quiescent（静止的） will
      * time out and terminate (see awaitWork) if the pool has remained
      * quiescent for period IDLE_TIMEOUT, increasing the period as the
      * number of threads decreases, eventually removing all workers.
-     * Also, when more than two spare threads exist, excess threads
+     * Also, when more than two spare（空闲） threads exist, excess（过量） threads
      * are immediately terminated at the next quiescent point.
      * (Padding by two avoids hysteresis.)
      *
@@ -506,7 +525,7 @@ public class ForkJoinPool extends AbstractExecutorService {
      * cancelling their unprocessed tasks, and waking them up, doing
      * so repeatedly until stable (but with a loop bounded by the
      * number of workers).  Calls to non-abrupt shutdown() preface
-     * this by checking whether termination should commence. This
+     * this by checking whether termination should commence（开始）. This
      * relies primarily on the active count bits of "ctl" maintaining
      * consensus -- tryTerminate is called from awaitWork whenever
      * quiescent. However, external submitters do not take part in
@@ -540,7 +559,7 @@ public class ForkJoinPool extends AbstractExecutorService {
      *      thread to compensate for blocked joiners until they unblock.
      *
      * A third form (implemented in tryRemoveAndExec) amounts to
-     * helping a hypothetical compensator: If we can readily tell that
+     * helping a hypothetical（假设性的） compensator: If we can readily tell that
      * a possible action of a compensator is to steal and execute the
      * task being joined, the joining thread can do so directly,
      * without the need for a compensation thread (although at the
@@ -556,7 +575,7 @@ public class ForkJoinPool extends AbstractExecutorService {
      * It also records (in field currentJoin) the task it is currently
      * actively joining. Method helpStealer uses these markers to try
      * to find a worker to help (i.e., steal back a task from and
-     * execute it) that could hasten completion of the actively joined
+     * execute it) that could hasten（催促） completion of the actively joined
      * task.  Thus, the joiner executes a task that would be on its
      * own local deque had the to-be-joined task not been stolen. This
      * is a conservative variant of the approach described in Wagner &
@@ -784,6 +803,7 @@ public class ForkJoinPool extends AbstractExecutorService {
      * do not want multiple WorkQueue instances or multiple queue
      * arrays sharing cache lines. The @Contended annotation alerts
      * JVMs to try to keep instances apart.
+     * 基于数组实现的Deque（双端队列）
      */
     @sun.misc.Contended
     static final class WorkQueue {
@@ -792,36 +812,49 @@ public class ForkJoinPool extends AbstractExecutorService {
          * Capacity of work-stealing queue array upon initialization.
          * Must be a power of two; at least 4, but should be larger to
          * reduce or eliminate cacheline sharing among queues.
-         * Currently, it is much larger, as a partial workaround for
+         * Currently, it is much larger, as a partial workaround（变通方案） for
          * the fact that JVMs often place arrays in locations that
          * share GC bookkeeping (especially cardmarks) such that
          * per-write accesses encounter serious memory contention.
+         * 队列初始化容量2 ^ 13
          */
         static final int INITIAL_QUEUE_CAPACITY = 1 << 13;
 
         /**
          * Maximum size for queue arrays. Must be a power of two less
          * than or equal to 1 << (31 - width of array entry) to ensure
-         * lack of wraparound of index calculations, but defined to a
+         * lack of wraparound（环绕） of index calculations, but defined to a
          * value a bit less than this to help users trap runaway
-         * programs before saturating systems.
+         * programs before saturating（饱和） systems.
          */
         static final int MAXIMUM_QUEUE_CAPACITY = 1 << 26; // 64M
 
         // Instance fields
         volatile int scanState;    // versioned, <0: inactive; odd:scanning
+        // 线程池栈前驱
         int stackPred;             // pool stack (ctl) predecessor
+        // 从其他线程队列窃取的任务数量
         int nsteals;               // number of steals
+        // 随机数和窃取线程索引的提示
         int hint;                  // randomization and stealer index hint
+        // 线程池索引和模式
         int config;                // pool index and mode
         volatile int qlock;        // 1: locked, < 0: terminate; else 0
+        // 任务poll（窃取）的槽位索引
         volatile int base;         // index of next slot for poll
+        // 任务添加的槽位索引
         int top;                   // index of next slot for push
+        // 任务数组
         ForkJoinTask<?>[] array;   // the elements (initially unallocated)
+        // 线程池
         final ForkJoinPool pool;   // the containing pool (may be null)
+        // 归属的线程
         final ForkJoinWorkerThread owner; // owning thread or null if shared
+        // 保存阻塞当前线程的线程，被阻塞时值为owner
         volatile Thread parker;    // == owner during call to park; else null
+        // 最新的需要被join的任务
         volatile ForkJoinTask<?> currentJoin;  // task being joined in awaitJoin
+        // 最新的窃取到的任务
         volatile ForkJoinTask<?> currentSteal; // mainly used by helpStealer
 
         WorkQueue(ForkJoinPool pool, ForkJoinWorkerThread owner) {

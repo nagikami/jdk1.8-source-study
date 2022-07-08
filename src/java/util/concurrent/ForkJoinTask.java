@@ -400,17 +400,20 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
     /**
      * Implementation for join, get, quietlyJoin. Directly handles
      * only cases of already-completed, external wait, and
-     * unfork+exec.  Others are relayed to ForkJoinPool.awaitJoin.
+     * unfork+exec.  Others are relayed（中转） to ForkJoinPool.awaitJoin.
      *
      * @return status upon completion
      */
     private int doJoin() {
         int s; Thread t; ForkJoinWorkerThread wt; ForkJoinPool.WorkQueue w;
         return (s = status) < 0 ? s :
+                // 任务已完成
             ((t = Thread.currentThread()) instanceof ForkJoinWorkerThread) ?
+                    // 当前线程为ForkJoinWorkerThread，
             (w = (wt = (ForkJoinWorkerThread)t).workQueue).
             tryUnpush(this) && (s = doExec()) < 0 ? s :
             wt.pool.awaitJoin(w, this, 0L) :
+                    // 当前线程为其他线程
             externalAwaitDone();
     }
 
@@ -719,9 +722,11 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
      */
     public final ForkJoinTask<V> fork() {
         Thread t;
+        // 当前线程为ForkJoinWorkerThread，将任务添加到当前线程任务队列
         if ((t = Thread.currentThread()) instanceof ForkJoinWorkerThread)
             ((ForkJoinWorkerThread)t).workQueue.push(this);
         else
+            // 提交任务到ForkJoinPool线程池
             ForkJoinPool.common.externalPush(this);
         return this;
     }
