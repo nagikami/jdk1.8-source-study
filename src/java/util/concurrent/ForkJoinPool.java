@@ -861,6 +861,7 @@ public class ForkJoinPool extends AbstractExecutorService {
             this.pool = pool;
             this.owner = owner;
             // Place indices in the center of array (that is not yet allocated)
+            // 队列的base和top初始化在数组中间 2 ^ 12
             base = top = INITIAL_QUEUE_CAPACITY >>> 1;
         }
 
@@ -903,12 +904,21 @@ public class ForkJoinPool extends AbstractExecutorService {
         final void push(ForkJoinTask<?> task) {
             ForkJoinTask<?>[] a; ForkJoinPool p;
             int b = base, s = top, n;
+            // 任务队列存在
             if ((a = array) != null) {    // ignore if queue removed
+                // 设置写入哨兵，保证索引不越界，m所有位都为1
                 int m = a.length - 1;     // fenced write for task visibility
+                // 将元素添加到数组索引为top+1的位置
+                // m & s保证结果小于m，获得索引值s，左移2位（乘以4，代表每一个元素占4字节），获得元素相对偏移量，
+                // 与数组基础偏移量（16）相加得到top的绝对偏移量
                 U.putOrderedObject(a, ((m & s) << ASHIFT) + ABASE, task);
+                // 更新top为top+1
                 U.putOrderedInt(this, QTOP, s + 1);
+                // 队列任务数小于1
                 if ((n = s - b) <= 1) {
+                    // 线程池不为null
                     if ((p = pool) != null)
+                        // 唤醒工作线程
                         p.signalWork(p.workQueues, this);
                 }
                 else if (n >= m)
@@ -1435,6 +1445,7 @@ public class ForkJoinPool extends AbstractExecutorService {
     volatile int runState;               // lockable status
     final int config;                    // parallelism, mode
     int indexSeed;                       // to generate worker index
+    // 线程池中工作线程的任务队列数组
     volatile WorkQueue[] workQueues;     // main registry
     final ForkJoinWorkerThreadFactory factory;
     final UncaughtExceptionHandler ueh;  // per-worker UEH
@@ -1666,15 +1677,19 @@ public class ForkJoinPool extends AbstractExecutorService {
 
     /**
      * Tries to create or activate a worker if too few are active.
-     *
+     * 在活跃线程较少时创建或者激活一个线程
      * @param ws the worker array to use to find signallees
      * @param q a WorkQueue --if non-null, don't retry if now empty
      */
     final void signalWork(WorkQueue[] ws, WorkQueue q) {
         long c; int sp, i; WorkQueue v; Thread p;
+        // 活跃线程数较少
         while ((c = ctl) < 0L) {                       // too few active
+            // 无空闲线程
             if ((sp = (int)c) == 0) {                  // no idle workers
+                // 工作线程较少
                 if ((c & ADD_WORKER) != 0L)            // too few workers
+                    // 尝试添加工作线程
                     tryAddWorker(c);
                 break;
             }
@@ -3423,10 +3438,13 @@ public class ForkJoinPool extends AbstractExecutorService {
             QCURRENTJOIN = U.objectFieldOffset
                 (wk.getDeclaredField("currentJoin"));
             Class<?> ak = ForkJoinTask[].class;
+            // 数组基础偏移量，64位JVM为16（markWord 8Byte，类指针 4Byte，数组长度 4Byte）
             ABASE = U.arrayBaseOffset(ak);
+            // 每个元素所占空间大小，int是4，long是8
             int scale = U.arrayIndexScale(ak);
             if ((scale & (scale - 1)) != 0)
                 throw new Error("data type scale not a power of two");
+            // scale为4时，31 - 29 = 2
             ASHIFT = 31 - Integer.numberOfLeadingZeros(scale);
         } catch (Exception e) {
             throw new Error(e);

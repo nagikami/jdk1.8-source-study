@@ -221,6 +221,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
     // 任务执行结果
     volatile Object result;       // Either the result or boxed AltResult
 
+    // 保存回调函数的栈（使用链表实现）
     volatile Completion stack;    // Top of Treiber stack of dependent actions
 
     final boolean internalComplete(Object r) { // CAS from null to r
@@ -231,7 +232,9 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
         return UNSAFE.compareAndSwapObject(this, STACK, cmp, val);
     }
 
-    /** Returns true if successfully pushed c onto stack. */
+    /** Returns true if successfully pushed c onto stack.
+     * 新增节点，将新节点设置为head（stack的top）
+     */
     final boolean tryPushStack(Completion c) {
         Completion h = stack;
         lazySetNext(c, h);
@@ -450,8 +453,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
         /**
          * Performs completion action if triggered, returning a
          * dependent that may need propagation, if one exists.
-         *
-         * @param mode SYNC, ASYNC, or NESTED
+         * 若有依赖的任务（CompletableFuture）则返回
+         * @param mode SYNC 0, ASYNC 1, or NESTED -1
          */
         abstract CompletableFuture<?> tryFire(int mode);
 
@@ -471,6 +474,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
     /**
      * Pops and tries to trigger all reachable dependents.  Call only
      * when known to be done.
+     * 函数执行顺序为当前任务LIFO，传播任务FIFO
      */
     final void postComplete() {
         /*
@@ -479,17 +483,26 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
          * pushing others to avoid unbounded recursion.
          */
         CompletableFuture<?> f = this; Completion h;
+        // 当前任务的回调函数栈非空（head不为空），或者传播任务栈为空，则跳转回当前任务
         while ((h = f.stack) != null ||
                (f != this && (h = (f = this).stack) != null)) {
             CompletableFuture<?> d; Completion t;
+            // 弹出当前函数，stack指向下一个next
             if (f.casStack(h, t = h.next)) {
+                // 下一个函数不为空
                 if (t != null) {
+                    // 跳转到新任务且不是新任务最后一个函数，将新任务的函数入到当前栈，
+                    // 使树形结构变成链表结构，避免递归过深
                     if (f != this) {
+                        // 保存新任务的最后一个函数之前的函数
                         pushStack(h);
+                        // 循环直到新任务的最后一个函数
                         continue;
                     }
+                    // 将head的next设置为null，等待GC
                     h.next = null;    // detach
                 }
+                // 执行当前任务head对应的函数，若需要传播，返回下一个任务
                 f = (d = h.tryFire(NESTED)) == null ? this : d;
             }
         }
@@ -524,8 +537,11 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
     /** A Completion with a source, dependent, and executor. */
     @SuppressWarnings("serial")
     abstract static class UniCompletion<T,V> extends Completion {
+        // 执行器
         Executor executor;                 // executor to use (null if none)
+        // 依赖的任务
         CompletableFuture<V> dep;          // the dependent to complete
+        // 被依赖的任务
         CompletableFuture<T> src;          // source for action
 
         UniCompletion(Executor executor, CompletableFuture<V> dep,
@@ -538,6 +554,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
          * be triggerable. Uses FJ tag bit to ensure that only one
          * thread claims ownership.  If async, starts as task -- a
          * later call to tryFire will run action.
+         * 如果当前任务可以被执行返回true，否则返回false，如果是异步模式则作为任务由tryFire执行
+         * 使用tag
          */
         final boolean claim() {
             Executor e = executor;
@@ -556,6 +574,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
     /** Pushes the given completion (if it exists) unless done. */
     final void push(UniCompletion<?,?> c) {
         if (c != null) {
+            // 在任务执行完成前，尝试将回调函数添加到函数栈
             while (result == null && !tryPushStack(c))
                 lazySetNext(c, null); // clear on failure
         }
@@ -796,6 +815,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
         CompletableFuture<T> d = new CompletableFuture<T>();
         if (e != null || !d.uniWhenComplete(this, f, null)) {
             UniWhenComplete<T> c = new UniWhenComplete<T>(e, d, this, f);
+            // 添加回调函数到任务函数栈
             push(c);
             c.tryFire(SYNC);
         }
@@ -1591,6 +1611,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
     @SuppressWarnings("serial")
     static final class AsyncSupply<T> extends ForkJoinTask<Void>
             implements Runnable, AsynchronousCompletionTask {
+        // 任务的future和对应的执行逻辑
         CompletableFuture<T> dep; Supplier<T> fn;
         AsyncSupply(CompletableFuture<T> dep, Supplier<T> fn) {
             this.dep = dep; this.fn = fn;
@@ -1604,13 +1625,17 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
             CompletableFuture<T> d; Supplier<T> f;
             if ((d = dep) != null && (f = fn) != null) {
                 dep = null; fn = null;
+                // 结果为空，任务未完成
                 if (d.result == null) {
                     try {
+                        // 执行传入函数并计算结果，更新result的值
                         d.completeValue(f.get());
                     } catch (Throwable ex) {
                         d.completeThrowable(ex);
                     }
                 }
+                // 任务执行完成后，执行所有依赖此任务的其他任务（函数），这些函数以无锁并发栈的形式保存
+                // 按照LIFO顺序执行保存在栈中的调用者注册的回调函数，传播任务函数按FIFO执行
                 d.postComplete();
             }
         }
@@ -1619,6 +1644,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
     static <U> CompletableFuture<U> asyncSupplyStage(Executor e,
                                                      Supplier<U> f) {
         if (f == null) throw new NullPointerException();
+        // 创建异步完成任务
         CompletableFuture<U> d = new CompletableFuture<U>();
         e.execute(new AsyncSupply<U>(d, f));
         return d;
@@ -1822,13 +1848,15 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      * Returns a new CompletableFuture that is asynchronously completed
      * by a task running in the {@link ForkJoinPool#commonPool()} with
      * the value obtained by calling the given Supplier.
-     *
+     * 返回执行传入函数并返回结果的异步完成任务CompletableFuture
      * @param supplier a function returning the value to be used
      * to complete the returned CompletableFuture
      * @param <U> the function's return type
      * @return the new CompletableFuture
      */
     public static <U> CompletableFuture<U> supplyAsync(Supplier<U> supplier) {
+        // 任务由ForkJoinPool.commonPool()或ThreadPerTaskExecutor
+        // （实现了Executor接口，内容为new Thread(r).start()）执行
         return asyncSupplyStage(asyncPool, supplier);
     }
 
@@ -2153,6 +2181,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
         return uniComposeStage(screenExecutor(executor), fn);
     }
 
+    // 注册回调函数
     public CompletableFuture<T> whenComplete(
         BiConsumer<? super T, ? super Throwable> action) {
         return uniWhenCompleteStage(null, action);
