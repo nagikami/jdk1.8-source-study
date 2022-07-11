@@ -221,7 +221,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
     // 任务执行结果
     volatile Object result;       // Either the result or boxed AltResult
 
-    // 保存回调函数的栈（使用链表实现）
+    // 使用链表实现的保存回调函数（依赖当前任务的任务）的栈
     volatile Completion stack;    // Top of Treiber stack of dependent actions
 
     final boolean internalComplete(Object r) { // CAS from null to r
@@ -445,6 +445,9 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
 
     /* ------------- Base Completion classes and operations -------------- */
 
+    /**
+     * Completion作为子任务节点，既是可执行任务，同时也保存依赖当前子任务的任务（CompletableFuture）
+     */
     @SuppressWarnings("serial")
     abstract static class Completion extends ForkJoinTask<Void>
         implements Runnable, AsynchronousCompletionTask {
@@ -453,7 +456,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
         /**
          * Performs completion action if triggered, returning a
          * dependent that may need propagation, if one exists.
-         * 若有依赖的任务（CompletableFuture）则返回
+         * 执行子任务对应的执行逻辑，若有依赖子任务的任务（CompletableFuture），
+         * 则将该任务（CompletableFuture）作为子任务执行过程的抽象并返回，完成任务传播
          * @param mode SYNC 0, ASYNC 1, or NESTED -1
          */
         abstract CompletableFuture<?> tryFire(int mode);
@@ -474,7 +478,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
     /**
      * Pops and tries to trigger all reachable dependents.  Call only
      * when known to be done.
-     * 函数执行顺序为当前任务LIFO，传播任务FIFO
+     * 函数执行顺序为依赖当前任务的任务LIFO，传播任务FIFO
      */
     final void postComplete() {
         /*
@@ -483,26 +487,26 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
          * pushing others to avoid unbounded recursion.
          */
         CompletableFuture<?> f = this; Completion h;
-        // 当前任务的回调函数栈非空（head不为空），或者传播任务栈为空，则跳转回当前任务
+        // 依赖当前任务的任务栈非空（head不为空），或者传播任务栈为空，则跳转回当前任务
         while ((h = f.stack) != null ||
                (f != this && (h = (f = this).stack) != null)) {
             CompletableFuture<?> d; Completion t;
-            // 弹出当前函数，stack指向下一个next
+            // 弹出当前子任务节点，stack指向下一个节点
             if (f.casStack(h, t = h.next)) {
-                // 下一个函数不为空
+                // 下一个子任务不为空
                 if (t != null) {
-                    // 跳转到新任务且不是新任务最后一个函数，将新任务的函数入到当前栈，
+                    // 跳转到新任务且不是新任务最后一个子任务，将新任务的子任务入到当前栈，
                     // 使树形结构变成链表结构，避免递归过深
                     if (f != this) {
-                        // 保存新任务的最后一个函数之前的函数
+                        // 保存新任务的最后一个子任务之前的子任务
                         pushStack(h);
-                        // 循环直到新任务的最后一个函数
+                        // 循环直到新任务的最后一个子任务
                         continue;
                     }
-                    // 将head的next设置为null，等待GC
+                    // 将head的next设置为null（删除即将执行的当前子任务），等待GC
                     h.next = null;    // detach
                 }
-                // 执行当前任务head对应的函数，若需要传播，返回下一个任务
+                // 执行当前任务head对应的子任务，若需要传播，返回依赖此子任务的任务
                 f = (d = h.tryFire(NESTED)) == null ? this : d;
             }
         }
@@ -539,9 +543,9 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
     abstract static class UniCompletion<T,V> extends Completion {
         // 执行器
         Executor executor;                 // executor to use (null if none)
-        // 依赖的任务
+        // 依赖当前任务的任务
         CompletableFuture<V> dep;          // the dependent to complete
-        // 被依赖的任务
+        // 当前任务依赖的任务
         CompletableFuture<T> src;          // source for action
 
         UniCompletion(Executor executor, CompletableFuture<V> dep,
@@ -555,13 +559,15 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
          * thread claims ownership.  If async, starts as task -- a
          * later call to tryFire will run action.
          * 如果当前任务可以被执行返回true，否则返回false，如果是异步模式则作为任务由tryFire执行
-         * 使用tag
+         * 使用FJ tag的bit标识保证任务只属于一个线程且只执行一次
          */
         final boolean claim() {
             Executor e = executor;
+            // CAS更改任务标识，保证只有一个线程执行
             if (compareAndSetForkJoinTaskTag((short)0, (short)1)) {
                 if (e == null)
                     return true;
+                // 执行器置为空，其他线程不可用
                 executor = null; // disable
                 e.execute(this);
             }
@@ -574,7 +580,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
     /** Pushes the given completion (if it exists) unless done. */
     final void push(UniCompletion<?,?> c) {
         if (c != null) {
-            // 在任务执行完成前，尝试将回调函数添加到函数栈
+            // 在任务执行完成前，尝试添加子任务到任务栈，若此时任务已经执行完，则子任务会在尝试执行时执行
             while (result == null && !tryPushStack(c))
                 lazySetNext(c, null); // clear on failure
         }
@@ -584,18 +590,27 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      * Post-processing by dependent after successful UniCompletion
      * tryFire.  Tries to clean stack of source a, and then either runs
      * postComplete or returns this to caller, depending on mode.
+     * 子任务执行完成，调用postComplete，或者返回当前任务，完成任务传播
      */
     final CompletableFuture<T> postFire(CompletableFuture<?> a, int mode) {
+        // 父任务存在且其子任务栈不为空
         if (a != null && a.stack != null) {
+            // 嵌套模式（说明处于父任务postComplete中）或者异步模式但父任务未执行完成
             if (mode < 0 || a.result == null)
+                // 清理父任务的子任务栈（会清除当前任务）
                 a.cleanStack();
             else
+                // 异步模式且父任务执行完成，说明在父任务的postComplete中，
+                // 继续调用postComplete，保障并发
                 a.postComplete();
         }
+        // 当前任务执行完成且当前任务有子任务未执行完成
         if (result != null && stack != null) {
+            // 嵌套模式，说明在执行父任务postComplete中，因此返回当前future，完成任务传播
             if (mode < 0)
                 return this;
             else
+                // 异步模式，执行当前任务的子任务
                 postComplete();
         }
         return null;
@@ -768,35 +783,54 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
                         BiConsumer<? super T, ? super Throwable> fn) {
             super(executor, dep, src); this.fn = fn;
         }
+        // 钩子方法，为父类提供实现
         final CompletableFuture<T> tryFire(int mode) {
             CompletableFuture<T> d; CompletableFuture<T> a;
+            // 没有任务依赖当前子任务，或者有任务依赖当前子任务且子任务尝试执行失败（已经执行过了）
             if ((d = dep) == null ||
                 !d.uniWhenComplete(a = src, fn, mode > 0 ? null : this))
                 return null;
+            // 子任务节点设置为无效节点
             dep = null; src = null; fn = null;
+            // 子任务执行成功
             return d.postFire(a, mode);
         }
     }
 
+    /**
+     * 当前任务是否可执行，可以执行则执行，不可执行则返回false
+     * @param a 依赖的任务（父任务）
+     * @param f 执行逻辑
+     * @param c
+     * @return
+     */
     final boolean uniWhenComplete(CompletableFuture<T> a,
                                   BiConsumer<? super T,? super Throwable> f,
                                   UniWhenComplete<T> c) {
         Object r; T t; Throwable x = null;
+        // 父任务未完成或者当前任务执行逻辑为空
         if (a == null || (r = a.result) == null || f == null)
             return false;
+        // 父任务已完成，当前任务未完成
         if (result == null) {
             try {
+                // 当前任务不可执行（已经执行过了）
                 if (c != null && !c.claim())
                     return false;
+                // 获取父任务执行结果
+                // 父任务执行结果异常
                 if (r instanceof AltResult) {
                     x = ((AltResult)r).ex;
                     t = null;
                 } else {
+                    // 获取父任务正常结果
                     @SuppressWarnings("unchecked") T tr = (T) r;
                     t = tr;
                 }
+                // 执行当前任务，t为父任务结果，x为父任务异常
                 f.accept(t, x);
                 if (x == null) {
+                    // 任务结果设置为父任务的结果
                     internalComplete(r);
                     return true;
                 }
@@ -804,6 +838,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
                 if (x == null)
                     x = ex;
             }
+            // 设置异常和结果
             completeThrowable(x, r);
         }
         return true;
@@ -812,13 +847,19 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
     private CompletableFuture<T> uniWhenCompleteStage(
         Executor e, BiConsumer<? super T, ? super Throwable> f) {
         if (f == null) throw new NullPointerException();
+        // 构建子任务future，依赖当前任务
         CompletableFuture<T> d = new CompletableFuture<T>();
+        // 线程池非空或者尝试执行子任务失败
         if (e != null || !d.uniWhenComplete(this, f, null)) {
+            // 构建子任务节点Completion（包含依赖子任务的任务和父任务）
             UniWhenComplete<T> c = new UniWhenComplete<T>(e, d, this, f);
-            // 添加回调函数到任务函数栈
+            // 添加子任务到当前任务的任务栈，等待被执行，若下方的尝试执行成功，
+            // 则修改bit标识，保证只执行一次
             push(c);
+            // 调用钩子函数，尝试执行子任务
             c.tryFire(SYNC);
         }
+        // 返回新任务future（执行过程）
         return d;
     }
 
@@ -1634,8 +1675,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
                         d.completeThrowable(ex);
                     }
                 }
-                // 任务执行完成后，执行所有依赖此任务的其他任务（函数），这些函数以无锁并发栈的形式保存
-                // 按照LIFO顺序执行保存在栈中的调用者注册的回调函数，传播任务函数按FIFO执行
+                // 任务执行完成后，执行所有依赖此任务的其他任务（函数），这些任务以无锁并发栈的形式保存
+                // 按照LIFO顺序执行保存在栈中的依赖当前任务的任务，传播任务按FIFO执行
                 d.postComplete();
             }
         }
@@ -1785,7 +1826,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
                     Thread.currentThread().interrupt();
             }
         }
-        postComplete();
+        ·   postComplete();
         return r;
     }
 
@@ -2181,7 +2222,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
         return uniComposeStage(screenExecutor(executor), fn);
     }
 
-    // 注册回调函数
+    // 注册回调函数（依赖当前任务的任务，即子任务）
     public CompletableFuture<T> whenComplete(
         BiConsumer<? super T, ? super Throwable> action) {
         return uniWhenCompleteStage(null, action);
