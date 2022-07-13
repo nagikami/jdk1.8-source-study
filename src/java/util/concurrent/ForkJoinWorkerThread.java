@@ -99,6 +99,7 @@ public class ForkJoinWorkerThread extends Thread {
         super("aForkJoinWorkerThread");
         U.putOrderedObject(this, INHERITEDACCESSCONTROLCONTEXT, INNOCUOUS_ACC);
         this.pool = pool;
+        // 注册线程，返回绑定的任务队列
         this.workQueue = pool.registerWorker(this);
     }
 

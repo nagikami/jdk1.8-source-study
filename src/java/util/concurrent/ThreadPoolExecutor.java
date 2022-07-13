@@ -384,7 +384,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     private final AtomicInteger ctl = new AtomicInteger(ctlOf(RUNNING, 0));
     // 29
     private static final int COUNT_BITS = Integer.SIZE - 3;
-    // 2 ^ 30 - 1
+    // 2 ^ 29 - 1
     private static final int CAPACITY   = (1 << COUNT_BITS) - 1;
 
     // runState is stored in the high-order bits
