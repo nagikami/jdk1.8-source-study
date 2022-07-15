@@ -1051,12 +1051,15 @@ public class ForkJoinPool extends AbstractExecutorService {
         /**
          * Pops the given task only if it is at the current top.
          * (A shared version is available only via FJP.tryExternalUnpush)
+         * 当任务在任务队列top时弹出任务
         */
         final boolean tryUnpush(ForkJoinTask<?> t) {
             ForkJoinTask<?>[] a; int s;
+            // 任务队列有任务，尝试将top弹出成功
             if ((a = array) != null && (s = top) != base &&
                 U.compareAndSwapObject
                 (a, (((a.length - 1) & --s) << ASHIFT) + ABASE, t, null)) {
+                // 更新top
                 U.putOrderedInt(this, QTOP, s);
                 return true;
             }
@@ -1150,13 +1153,14 @@ public class ForkJoinPool extends AbstractExecutorService {
         /**
          * If present, removes from queue and executes the given task,
          * or any other cancelled task. Used only by awaitJoin.
-         *
+         * 返回true，代表可以窃取任务执行
          * @return true if queue empty and task not known to be done
          */
         final boolean tryRemoveAndExec(ForkJoinTask<?> task) {
             ForkJoinTask<?>[] a; int m, s, b, n;
             if ((a = array) != null && (m = a.length - 1) >= 0 &&
                 task != null) {
+                // 从top开始遍历任务队列，查找是否存在给定任务
                 while ((n = (s = top) - (b = base)) > 0) {
                     for (ForkJoinTask<?> t;;) {      // traverse from s to b
                         long j = ((--s & m) << ASHIFT) + ABASE;
@@ -1483,7 +1487,14 @@ public class ForkJoinPool extends AbstractExecutorService {
     private static final int  SHUTDOWN   = 1 << 31;
 
     // Instance fields
-    // 控制变量，分四段每段16位
+    /**
+     * 控制变量，分四段每段16位
+     * AC(active count): 活动的工作线程数量减去目标并行度（目标并行度：最大的工作线程数量，所以AC一般是负值，等于0时，说明活动线程已经达到饱和了）
+     * TC(total count): 总的工作线程数量总数减去目标并行度（TC一般也是负值，等于0时，说明总的工作线程已经饱和，并且，AC一般小于等于TC）
+     * SS(stack state): 栈顶工作线程状态和版本数（每一个线程在挂起时都会持有前一个等待线程所在工作队列的索引，
+     * 由此构成一个等待的工作线程栈，栈顶是最新等待的线程，第一位表示状态1.不活动 0.活动，后15表示版本号，标识ID的版本-最后16位）。
+     * ID: 栈顶工作线程所在工作队列的池索引
+     */
     volatile long ctl;                   // main pool control
     // 线程池运行状态
     volatile int runState;               // lockable
@@ -1980,6 +1991,12 @@ public class ForkJoinPool extends AbstractExecutorService {
      * changed, terminates the worker, which will in turn wake up
      * another worker to possibly repeat this process.
      * 阻塞工作线程等待窃取任务，或者终止工作线程
+     * 首先会自旋等待，自旋过程中如果发现前任线程已经唤醒，且工作队列已经激活，说明已经有任务了，接着自旋等待
+     * 若发现工作队列已经终止，则返回false，表示自己退出扫描工作
+     * 如果线程中断了，清除中断标记，继续扫描
+     * 如果发现当前总线程数量过多，退出，自己不再参与扫描工作
+     * 计算阻塞时间，准备阻塞自己
+     * 阻塞前或唤醒后，都会判断线程池的状态，工作队列的状态，以判断自己是否继续参与扫描工作
      * @param w the calling worker
      * @param r a random seed (for spins)
      * @return false if the worker should terminate
@@ -2004,7 +2021,7 @@ public class ForkJoinPool extends AbstractExecutorService {
                         (j = pred & SMASK) < ws.length &&
                             // 前驱等待线程任务队列不为空
                         (v = ws[j]) != null &&        // see if pred parking
-                            // 前驱等待线程已经唤醒且任务队列已激活
+                            // 前驱等待线程已经唤醒或任务队列已激活
                         (v.parker == null || v.scanState >= 0))
                         // 代表很可能不久就会有任务了，继续自旋
                         spins = SPINS;                // continue spinning
@@ -2037,16 +2054,26 @@ public class ForkJoinPool extends AbstractExecutorService {
                     deadline = System.nanoTime() + parkTime - TIMEOUT_SLOP;
                 }
                 else
+                    // 赋值，下面需要判断
                     prevctl = parkTime = deadline = 0L;
+                // 获取工作线程
                 Thread wt = Thread.currentThread();
+                // 获取锁
                 U.putObject(wt, PARKBLOCKER, this);   // emulate LockSupport
+                // 设置parker，准备阻塞
                 w.parker = wt;
+                // 再次检查，扫描状态未激活且ctl未改变
                 if (w.scanState < 0 && ctl == c)      // recheck before park
+                    // 阻塞工作线程
                     U.park(false, parkTime);
+                // 唤醒后置空parker
                 U.putOrderedObject(w, QPARKER, null);
+                // 解锁
                 U.putObject(wt, PARKBLOCKER, null);
+                // 已激活，继续扫描
                 if (w.scanState >= 0)
                     break;
+                // 超时，未等到任务，不再继续扫描，减少工作线程
                 if (parkTime != 0L && ctl == c &&
                     deadline - System.nanoTime() <= 0L &&
                     U.compareAndSwapLong(this, CTL, c, prevctl))
@@ -2246,7 +2273,7 @@ public class ForkJoinPool extends AbstractExecutorService {
 
     /**
      * Helps and/or blocks until the given task is done or timeout.
-     *
+     * 帮助或则阻塞直到任务完成或者超时
      * @param w caller
      * @param task the task
      * @param deadline for timed waits, if nonzero
@@ -2255,31 +2282,45 @@ public class ForkJoinPool extends AbstractExecutorService {
     final int awaitJoin(WorkQueue w, ForkJoinTask<?> task, long deadline) {
         int s = 0;
         if (task != null && w != null) {
+            // 记录任务队列上一个join的任务
             ForkJoinTask<?> prevJoin = w.currentJoin;
+            // 设置task为任务队列当前join的任务
             U.putOrderedObject(w, QCURRENTJOIN, task);
+            // 获取CountedCompleter类型的任务
             CountedCompleter<?> cc = (task instanceof CountedCompleter) ?
                 (CountedCompleter<?>)task : null;
             for (;;) {
+                // 任务已完成，跳出循环
                 if ((s = task.status) < 0)
                     break;
+                // CountedCompleter类型的任务调用helpComplete方法
                 if (cc != null)
                     helpComplete(w, cc, 0);
+                // 任务队列为空或执行失败（任务被窃取），帮助窃取者执行任务
                 else if (w.base == w.top || w.tryRemoveAndExec(task))
                     helpStealer(w, task);
+                // 任务已完成，跳出循环
                 if ((s = task.status) < 0)
                     break;
                 long ms, ns;
+                // 等待时间为0
                 if (deadline == 0L)
                     ms = 0L;
+                // 超时退出
                 else if ((ns = deadline - System.nanoTime()) <= 0L)
                     break;
+                // 等待时间小于0时置为1
                 else if ((ms = TimeUnit.NANOSECONDS.toMillis(ns)) <= 0L)
                     ms = 1L;
+                // 帮助失败，且为超时，尝试补偿策略（找一个替代者执行任务，自己在这等）
                 if (tryCompensate(w)) {
+                    // 补偿成功，等待指定时间
                     task.internalWait(ms);
+                    // 活跃线程加一
                     U.getAndAddLong(this, CTL, AC_UNIT);
                 }
             }
+            // 设置回前一个join的任务
             U.putOrderedObject(w, QCURRENTJOIN, prevJoin);
         }
         return s;
@@ -2706,12 +2747,17 @@ public class ForkJoinPool extends AbstractExecutorService {
      */
     final boolean tryExternalUnpush(ForkJoinTask<?> task) {
         WorkQueue[] ws; WorkQueue w; ForkJoinTask<?>[] a; int m, s;
+        // 获取线程探针随机值
         int r = ThreadLocalRandom.getProbe();
+        // 任务队列数组非空，且偶数槽位获取到的任务队列有任务
         if ((ws = workQueues) != null && (m = ws.length - 1) >= 0 &&
             (w = ws[m & r & SQMASK]) != null &&
             (a = w.array) != null && (s = w.top) != w.base) {
+            // 获取top索引内存偏移
             long j = (((a.length - 1) & (s - 1)) << ASHIFT) + ABASE;
+            // 尝试获取任务队列锁
             if (U.compareAndSwapInt(w, QLOCK, 0, 1)) {
+                // task在任务队列的top位置，且取出任务成功
                 if (w.top == s && w.array == a &&
                     U.getObject(a, j) == task &&
                     U.compareAndSwapObject(a, j, task, null)) {
@@ -2719,6 +2765,7 @@ public class ForkJoinPool extends AbstractExecutorService {
                     U.putOrderedInt(w, QLOCK, 0);
                     return true;
                 }
+                // 尝试释放锁
                 U.compareAndSwapInt(w, QLOCK, 1, 0);
             }
         }

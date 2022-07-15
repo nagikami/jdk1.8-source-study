@@ -298,7 +298,7 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
      */
     final int doExec() {
         int s; boolean completed;
-        // 任务尚未执行
+        // 任务未完成
         if ((s = status) >= 0) {
             try {
                 // 执行任务
@@ -339,31 +339,40 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
 
     /**
      * Blocks a non-worker-thread until completion.
-     * 阻塞非工作线程直到完成
+     * 阻塞外部线程直到完成
      * @return status upon completion
      */
     private int externalAwaitDone() {
+        // 如果是CountedCompleter类型的任务，执行externalHelpComplete方法
         int s = ((this instanceof CountedCompleter) ? // try helping
                  ForkJoinPool.common.externalHelpComplete(
                      (CountedCompleter<?>)this, 0) :
+                // 否则执行tryExternalUnpush方法获取任务，成功则执行，否则返回0
                  ForkJoinPool.common.tryExternalUnpush(this) ? doExec() : 0);
+        // 如果任务没有完成，则等待
         if (s >= 0 && (s = status) >= 0) {
             boolean interrupted = false;
             do {
+                // 将STATUS设置为SIGNAL等待被唤醒（notify）
                 if (U.compareAndSwapInt(this, STATUS, s, s | SIGNAL)) {
                     synchronized (this) {
+                        // 任务未完成
                         if (status >= 0) {
                             try {
+                                // 等待
                                 wait(0L);
                             } catch (InterruptedException ie) {
+                                // 捕获中断异常，保证机制完整，记录中断标记
                                 interrupted = true;
                             }
                         }
                         else
+                            // 执行完成，唤醒等待的线程
                             notifyAll();
                     }
                 }
-            } while ((s = status) >= 0);
+            } while ((s = status) >= 0); // 任务未完成则一直等待
+            // 补上中断
             if (interrupted)
                 Thread.currentThread().interrupt();
         }
@@ -406,14 +415,17 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
      */
     private int doJoin() {
         int s; Thread t; ForkJoinWorkerThread wt; ForkJoinPool.WorkQueue w;
+        // 任务完成（status小于0）则返回任务状态
         return (s = status) < 0 ? s :
-                // 任务已完成
+                // 任务未完成（status大于0）
             ((t = Thread.currentThread()) instanceof ForkJoinWorkerThread) ?
                     // 当前线程为ForkJoinWorkerThread，
             (w = (wt = (ForkJoinWorkerThread)t).workQueue).
+                    // 尝试线程任务队列取出任务，如果取出任务则去执行任务，执行成功则返回结果
             tryUnpush(this) && (s = doExec()) < 0 ? s :
+                    // 否则，任务可能被别的线程偷走了，执行内部等待方法
             wt.pool.awaitJoin(w, this, 0L) :
-                    // 当前线程为其他线程
+                    // 当前线程为外部线程，执行外部等待方法
             externalAwaitDone();
     }
 
@@ -722,11 +734,11 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
      */
     public final ForkJoinTask<V> fork() {
         Thread t;
-        // 当前线程为ForkJoinWorkerThread，将任务添加到当前线程任务队列
+        // 当前线程为ForkJoinWorkerThread，将任务添加到当前线程任务队列（内部任务）
         if ((t = Thread.currentThread()) instanceof ForkJoinWorkerThread)
             ((ForkJoinWorkerThread)t).workQueue.push(this);
         else
-            // 提交任务到ForkJoinPool线程池
+            // 提交任务到ForkJoinPool线程池（外部任务）
             ForkJoinPool.common.externalPush(this);
         return this;
     }
@@ -744,6 +756,7 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
      */
     public final V join() {
         int s;
+        // 调用doJoin
         if ((s = doJoin() & DONE_MASK) != NORMAL)
             reportException(s);
         return getRawResult();
