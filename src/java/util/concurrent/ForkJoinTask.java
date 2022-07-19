@@ -277,7 +277,7 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
             if ((s = status) < 0)
                 // 返回状态
                 return s;
-            // 任务未完成，则尝试更新状态为
+            // 任务未完成，则尝试更新状态为传入状态
             if (U.compareAndSwapInt(this, STATUS, s, s | completion)) {
                 // 高16位有值
                 if ((s >>> 16) != 0)
