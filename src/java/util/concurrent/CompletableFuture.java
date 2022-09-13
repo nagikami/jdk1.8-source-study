@@ -1826,7 +1826,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
                     Thread.currentThread().interrupt();
             }
         }
-        ·   postComplete();
+        postComplete();
         return r;
     }
 
